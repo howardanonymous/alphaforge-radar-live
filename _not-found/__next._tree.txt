@@ -1,0 +1,2 @@
+:HL["/alphaforge-radar-live/_next/static/chunks/0qiwa_9qvlfe-.css","style"]
+0:{"tree":{"name":"","param":null,"prefetchHints":16,"slots":{"children":{"name":"/_not-found","param":null,"prefetchHints":0,"slots":{"children":{"name":"__PAGE__","param":null,"prefetchHints":0,"slots":null}}}}},"staleTime":300,"buildId":"tmFWVgSJ9dcc-1YorHTV2"}
