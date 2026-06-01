@@ -14,8 +14,8 @@ interface DeviationData {
 
 export default function CryptoRadarDashboard() {
   // 生產環境建議配置環境變數，若無則預設為演示/錯誤狀態
-  const BACKEND_API = process.env.NEXT_PUBLIC_BACKEND_API || ''; 
-  const WS_URL = process.env.NEXT_PUBLIC_WS_URL || ''; 
+const BACKEND_API = "https://alphaforge-backend-dtqv.onrender.com"; 
+const WS_URL = "wss://alphaforge-backend-dtqv.onrender.com/ws/public/btc-drift";
 
   const [btcData, setBtcData] = useState({
     price: 0,
