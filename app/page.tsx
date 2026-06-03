@@ -1,88 +1,114 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 interface DeviationData {
   id: string;
   title: string;
-  deribit_implied_odds: number; // 對齊後端真實動態基準
-  manifold_odds: number;        // 對齊後端 Manifold 散戶機率
-  deviation_rate: number;       // Cython 計算出的失衡偏差率
-  anomaly_type: string;         // CRITICAL_SPREAD, MISPRICING, STABLE
+  deribit_implied_odds: number; 
+  manifold_odds: number;        
+  deviation_rate: number;       
+  anomaly_type: string;         
 }
 
 export default function CryptoRadarDashboard() {
   // ======================
-  // 🛡️ 核心端點：預設指向 Render 生產環境，防止環境變數未填時退回 127.0.0.1 導致壞死
+  // 核心端點：後端 WebSocket 生產機網址 (FastAPI 使用 wss://)
   // ======================
-  const BACKEND_API =
-    process.env.NEXT_PUBLIC_BACKEND_API ||
-    'https://alphaforge-backend-dtqv.onrender.com/api/v1';
+  const WS_BACKEND_API = 'wss://alphaforge-backend-dtqv.onrender.com/ws/radar';
+  const HTTP_BACKEND_API = 'https://alphaforge-backend-dtqv.onrender.com/api/v1';
 
   // ======================
-  // 核心狀態管理 (Snapshot Polling 快照輪詢)
+  // 核心狀態管理
   // ======================
   const [marketStatus, setMarketStatus] = useState({
-    status: 'LOADING',
+    status: 'LOADING', // LOADING, STABLE, DISCONNECTED
     timestamp: 0,
-    currentCategory: 'CRYPTO' // 預設看板：加密貨幣
+    currentCategory: 'CRYPTO' 
   });
 
   const [deviations, setDeviations] = useState<DeviationData[]>([]);
   const [isMounted, setIsMounted] = useState(false);
 
-  // 渠道商與付費牆用戶輸入狀態
+  // 用戶憑證與渠道商輸入狀態
   const [apiKey, setApiKey] = useState('');
   const [platformUid, setPlatformUid] = useState('');
   const [selectedPlatform, setSelectedPlatform] = useState('POLYMARKET');
   const [bindMessage, setBindMessage] = useState('');
+
+  // 使用 useRef 控管 WebSocket 實例，防止 React 重複渲染導致連線爆炸
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     setIsMounted(true);
   }, []);
 
   // ======================
-  // 📡 高效定時輪詢核心 (走 Next.js 代理通道，繞開瀏覽器 CORS)
+  // 🔄 核心：WebSocket 即時數據雙向串流 (含斷線自動重連機制)
   // ======================
   useEffect(() => {
-    let isAlive = true;
+    if (!isMounted) return;
 
-    async function fetchRadarSnapshot() {
-      try {
-        // 🚀 核心修正：直接呼叫 Next.js 代理，徹底消除跨網域 (CORS) 阻擋與端點迷路
-        const res = await fetch(`/api/radar?category=${marketStatus.currentCategory}`);
-        if (!res.ok) throw new Error('Network response was not ok');
+    let reconnectTimer: NodeJS.Timeout;
+    
+    function connectWS() {
+      // 💡 數據防禦：將當前分類與用戶自己的 API Key 壓入連線 URL 中，供後端進行付費牆校驗
+      const wsUrl = `${WS_BACKEND_API}?category=${marketStatus.currentCategory}&api_key=${apiKey || 'PUBLIC_GUEST'}`;
+      
+      console.log(`📡 Attempting WS Connection to: ${wsUrl}`);
+      const socket = new WebSocket(wsUrl);
+      wsRef.current = socket;
+
+      socket.onopen = () => {
+        console.log('✅ WebSocket Connection Established.');
+        setMarketStatus(prev => ({ ...prev, status: 'STABLE' }));
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const result = JSON.parse(event.data);
+          // 接收來自後端 Cython 矩陣即時推送的 Snapshot
+          if (result && result.data) {
+            setDeviations(result.data);
+            setMarketStatus(prev => ({
+              ...prev,
+              timestamp: result.timestamp
+            }));
+          }
+        } catch (err) {
+          console.error('❌ Failed to parse WS message:', err);
+        }
+      };
+
+      socket.onclose = (e) => {
+        console.log(`⚠️ WebSocket Closed. Code: ${e.code}, Reason: ${e.reason}`);
+        setMarketStatus(prev => ({ ...prev, status: 'DISCONNECTED' }));
         
-        const result = await res.json();
+        // 🚀 斷線保護：每 5 秒自動嘗試重連，防止 Render 機台短暫閃斷
+        reconnectTimer = setTimeout(() => {
+          connectWS();
+        }, 5000);
+      };
 
-        if (isAlive && result.data) {
-          setDeviations(result.data);
-          setMarketStatus(prev => ({
-            ...prev,
-            status: 'STABLE',
-            timestamp: result.timestamp
-          }));
-        }
-      } catch (e) {
-        console.error('Fetch radar snapshot failed:', e);
-        if (isAlive) {
-          setMarketStatus(prev => ({ ...prev, status: 'DISCONNECTED' }));
-        }
-      }
+      socket.onerror = (err) => {
+        console.error('❌ WebSocket encountered error:', err);
+        socket.close();
+      };
     }
 
-    fetchRadarSnapshot();
-    // 每 15 秒溫和同步一次快照
-    const interval = setInterval(fetchRadarSnapshot, 15000);
+    connectWS();
 
+    // 🌟 清理機制：當切換領域標籤或組件卸載時，主動關閉舊連線，清空計時器
     return () => {
-      isAlive = false;
-      clearInterval(interval);
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      clearTimeout(reconnectTimer);
     };
-  }, [marketStatus.currentCategory]);
+  }, [isMounted, marketStatus.currentCategory, apiKey]); // 當分類或 API Key 改變，自動切換新串流
 
   // ======================
-  // 🔗 提交渠道商 UID 綁定（SQLite 真實寫入）
+  // 🔗 提交渠道商 UID 綁定（走常規 HTTP POST 到 Render）
   // ======================
   const handleBindUid = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,7 +117,7 @@ export default function CryptoRadarDashboard() {
       return;
     }
     try {
-      const res = await fetch(`${BACKEND_API}/platforms/bind?api_key=${apiKey}&platform=${selectedPlatform}&uid=${platformUid}`, {
+      const res = await fetch(`${HTTP_BACKEND_API}/platforms/bind?api_key=${apiKey}&platform=${selectedPlatform}&uid=${platformUid}`, {
         method: 'POST'
       });
       const result = await res.json();
@@ -131,7 +157,7 @@ export default function CryptoRadarDashboard() {
         </div>
       </div>
 
-      {/* 四大領域切換標籤 (CRYPTO, STOCKS, WEATHER, POLITICS) */}
+      {/* 四大領域切換標籤 */}
       <div className="flex gap-2 mb-6 text-xs">
         {[
           { key: 'CRYPTO', label: '🪙 Crypto Sector' },
@@ -156,7 +182,7 @@ export default function CryptoRadarDashboard() {
       {/* 系統即時監控狀態條 */}
       <div className="flex gap-3 mb-6 text-xs">
         <div className={`px-3 py-1 border rounded transition-all ${getStatusColor(marketStatus.status)}`}>
-          {marketStatus.status === 'STABLE' ? '📡 SNAPSHOT_SYNC_ACTIVE' : `⚠️ ENGINE_${marketStatus.status}`}
+          {marketStatus.status === 'STABLE' ? '⚡ STREAM_LIVE_ACTIVE' : `⚠️ STREAM_${marketStatus.status}`}
         </div>
         <div className="px-3 py-1 border border-zinc-800 rounded text-zinc-400">
           Core Engine: <span className="text-zinc-200">Cython_v10_Matrix</span>
@@ -169,7 +195,7 @@ export default function CryptoRadarDashboard() {
       {/* 主架構板塊 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        {/* 左側與中間：套利矩陣列表 (佔 2 欄) */}
+        {/* 左側與中間：套利矩陣列表 */}
         <div className="lg:col-span-2 space-y-4">
           {deviations.length === 0 && marketStatus.status === 'STABLE' && (
             <div className="text-zinc-600 text-sm p-12 border border-dashed border-zinc-800 text-center rounded">
@@ -201,7 +227,6 @@ export default function CryptoRadarDashboard() {
                 {item.title}
               </div>
 
-              {/* 數據欄位：動態對齊後端真實傳入的值 */}
               <div className="text-xs mt-4 p-3 bg-black border border-zinc-900 rounded grid grid-cols-1 md:grid-cols-3 gap-2 text-zinc-400">
                 <div>
                   🏛️ Institutional Base: <span className="text-zinc-100 font-bold ml-1">{item.deribit_implied_odds}%</span>
@@ -216,7 +241,6 @@ export default function CryptoRadarDashboard() {
                 </div>
               </div>
 
-              {/* 實體變現連結與動作 */}
               <div className="mt-4 flex items-center justify-between border-t border-zinc-900 pt-3 text-xs">
                 <button
                   onClick={() => alert('Premium Required: Download SDK matrix to unlock C++ backtest suite.')}
@@ -235,23 +259,21 @@ export default function CryptoRadarDashboard() {
           ))}
         </div>
 
-        {/* 右側：用戶綁定面板與付費牆 (佔 1 欄) */}
+        {/* 右側：用戶綁定面板與付費牆 */}
         <div className="space-y-6">
           
-          {/* 模組一：數據正當性說明 */}
           <div className="border border-zinc-800 p-4 rounded bg-zinc-900/10">
             <div className="text-xs text-amber-500 font-bold uppercase tracking-wider mb-2">
               Cross-Venue Intelligence
             </div>
             <p className="text-xs text-zinc-400 leading-relaxed">
-              This system maps multi-venue liquidity metrics against true mathematical baselines.
+              This system maps multi-venue liquidity metrics against true mathematical baselines via low-latency persistent streams.
             </p>
             <div className="mt-3 p-2 bg-zinc-900/50 border border-zinc-800 rounded text-[11px] text-zinc-500">
               ⚡ <span className="text-zinc-400">Data Freedom:</span> Users can retrieve data vectors via custom endpoints. No hardcoded logic.
             </div>
           </div>
 
-          {/* 模組二：渠道商帳號綁定表單 (真實對接後端 SQLite) */}
           <div className="border border-zinc-800 p-4 rounded bg-zinc-900/10">
             <div className="text-xs text-zinc-400 font-bold uppercase tracking-wider mb-3">
               🔗 Brokerage Channel Binding
@@ -307,7 +329,6 @@ export default function CryptoRadarDashboard() {
             )}
           </div>
 
-          {/* 模組三：USDC 每日付費牆入口 (NT$300 / $10 USDC 商業模型落地) */}
           <div className="border border-amber-500/20 p-4 rounded bg-gradient-to-b from-amber-950/10 to-transparent">
             <div className="text-xs text-amber-400 font-bold uppercase tracking-wider mb-1">
               💎 Premium Matrix Access
