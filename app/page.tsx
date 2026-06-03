@@ -12,9 +12,12 @@ interface DeviationData {
 }
 
 export default function CryptoRadarDashboard() {
+  // ======================
+  // 🛡️ 核心端點：預設指向 Render 生產環境，防止環境變數未填時退回 127.0.0.1 導致壞死
+  // ======================
   const BACKEND_API =
     process.env.NEXT_PUBLIC_BACKEND_API ||
-    'http://127.0.0.1:8000/api/v1';
+    'https://alphaforge-backend-dtqv.onrender.com/api/v1';
 
   // ======================
   // 核心狀態管理 (Snapshot Polling 快照輪詢)
@@ -39,15 +42,15 @@ export default function CryptoRadarDashboard() {
   }, []);
 
   // ======================
-  // 📡 高效定時輪詢核心 (每 15 秒同步一次 Cython 洗乾淨的記憶體快照)
+  // 📡 高效定時輪詢核心 (走 Next.js 代理通道，繞開瀏覽器 CORS)
   // ======================
   useEffect(() => {
     let isAlive = true;
 
     async function fetchRadarSnapshot() {
       try {
-        // 根據目前選取的分類 (CRYPTO, STOCKS, WEATHER, POLITICS) 向後端請求
-        const res = await fetch(`${BACKEND_API}/snapshot?category=${marketStatus.currentCategory}`);
+        // 🚀 核心修正：直接呼叫 Next.js 代理，徹底消除跨網域 (CORS) 阻擋與端點迷路
+        const res = await fetch(`/api/radar?category=${marketStatus.currentCategory}`);
         if (!res.ok) throw new Error('Network response was not ok');
         
         const result = await res.json();
@@ -69,14 +72,14 @@ export default function CryptoRadarDashboard() {
     }
 
     fetchRadarSnapshot();
-    // 每 15 秒溫和請求一次，完全不佔用伺服器高頻頻寬
+    // 每 15 秒溫和同步一次快照
     const interval = setInterval(fetchRadarSnapshot, 15000);
 
     return () => {
       isAlive = false;
       clearInterval(interval);
     };
-  }, [BACKEND_API, marketStatus.currentCategory]);
+  }, [marketStatus.currentCategory]);
 
   // ======================
   // 🔗 提交渠道商 UID 綁定（SQLite 真實寫入）
@@ -232,7 +235,7 @@ export default function CryptoRadarDashboard() {
           ))}
         </div>
 
-        {/* 右側：用戶綁定面板與 Web3 付費牆 (佔 1 欄) */}
+        {/* 右側：用戶綁定面板與付費牆 (佔 1 欄) */}
         <div className="space-y-6">
           
           {/* 模組一：數據正當性說明 */}
