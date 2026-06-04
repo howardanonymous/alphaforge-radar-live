@@ -33,9 +33,19 @@ interface StrategyModalProps {
   isOpen: boolean;
   onClose: () => void;
   strategy: RadarItem | null;
+  apiKey: string; // ✨ 新增：用於後端驗證
 }
 
-const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy }) => {
+const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy, apiKey }) => {
+  // ✨ 新增：處理執行狀態與回饋訊息
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [executeStatus, setExecuteStatus] = useState<{ type: 'idle' | 'success' | 'error', msg: string }>({ type: 'idle', msg: '' });
+
+  // 每次打開彈窗時重置狀態
+  useEffect(() => {
+    if (isOpen) setExecuteStatus({ type: 'idle', msg: '' });
+  }, [isOpen]);
+
   if (!isOpen || !strategy) return null;
 
   const isRetailOverpriced = strategy.manifold_odds > strategy.deribit_implied_odds;
@@ -45,6 +55,52 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
   const estSlippage = 0.45; 
   const estFee = 0.10;      
   const netArbitrageEdge = (parseFloat(spreadAbs) - (estSlippage + estFee)).toFixed(2);
+
+  // ✨ 新增：核心直連網關邏輯
+  const handleExecuteVector = async () => {
+    setIsExecuting(true);
+    setExecuteStatus({ type: 'idle', msg: 'Forwarding vectors to gateway...' });
+
+    try {
+      // 構建標準 JSON Payload，將訊號打包傳給後端
+      const payload = {
+        strategy_id: strategy.id,
+        anomaly_type: strategy.anomaly_type,
+        action: isRetailOverpriced ? "SHORT_RETAIL" : "LONG_RETAIL",
+        metrics: {
+          deribit_implied: strategy.deribit_implied_odds,
+          manifold_odds: strategy.manifold_odds,
+          spread_abs: parseFloat(spreadAbs),
+          net_edge: parseFloat(netArbitrageEdge)
+        },
+        timestamp: new Date().toISOString()
+      };
+
+      // 呼叫後端執行路由 (請確保你的 FastAPI 後端有寫這支 API)
+      const response = await fetch(`${BACKEND_HTTP_URL}/api/v1/execute`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          // 若無 apiKey 則帶入預設訪客標籤
+          "Authorization": `Bearer ${apiKey.trim() || "PUBLIC_GUEST"}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.status !== "error") {
+        setExecuteStatus({ type: 'success', msg: `✅ 執行成功: ${data.message || 'Vector bound to gateway'}` });
+      } else {
+        setExecuteStatus({ type: 'error', msg: `❌ 路由拒絕: ${data.detail || 'Execution rejected'}` });
+      }
+    } catch (err) {
+      console.error(err);
+      setExecuteStatus({ type: 'error', msg: '❌ 致命錯誤: 無法連接後端叢集' });
+    } finally {
+      setIsExecuting(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-fadeIn">
@@ -139,18 +195,32 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
           </div>
         </div>
 
+        {/* ✨ 新增：狀態回報區塊 */}
+        {executeStatus.msg && (
+          <div className={`mt-4 p-2 text-xs font-mono rounded border ${
+            executeStatus.type === 'success' ? 'bg-emerald-950/30 border-emerald-900 text-emerald-400' : 
+            executeStatus.type === 'error' ? 'bg-red-950/30 border-red-900 text-red-400' : 
+            'bg-zinc-900 border-zinc-800 text-zinc-400 animate-pulse'
+          }`}>
+            {executeStatus.msg}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-3 mt-6">
           <button 
             onClick={onClose}
-            className="w-full py-2 text-xs font-medium text-zinc-400 border border-zinc-800 rounded bg-zinc-900/50 hover:bg-zinc-900 hover:text-zinc-200 transition-colors"
+            disabled={isExecuting}
+            className="w-full py-2 text-xs font-medium text-zinc-400 border border-zinc-800 rounded bg-zinc-900/50 hover:bg-zinc-900 hover:text-zinc-200 transition-colors disabled:opacity-50"
           >
             Close Backtest
           </button>
+          {/* ✨ 更新：綁定實際發送邏輯，並加入 Loading 狀態防連點 */}
           <button 
-            onClick={() => alert("⚡ [ALPHA_WEBHOOK] Forwarding vectors directly to bound execution gateway...")}
-            className="w-full py-2 text-xs font-semibold bg-amber-500 text-black rounded hover:bg-amber-400 shadow-lg shadow-amber-950/20 transition-all font-mono"
+            onClick={handleExecuteVector}
+            disabled={isExecuting}
+            className="w-full py-2 text-xs font-semibold bg-amber-500 text-black rounded hover:bg-amber-400 shadow-lg shadow-amber-950/20 transition-all font-mono disabled:bg-amber-700 disabled:text-zinc-400 disabled:cursor-not-allowed"
           >
-            EXECUTE VECTOR VIA API
+            {isExecuting ? "EXECUTING..." : "EXECUTE VECTOR VIA API"}
           </button>
         </div>
       </div>
@@ -247,7 +317,7 @@ export default function RadarPage() {
         wsRef.current.close();
       }
     };
-  }, [currentCategory]);
+  }, [currentCategory, apiKey]); // ✨ 加入 apiKey 作為相依陣列，當使用者輸入金鑰時 WS 可以自動重新連線帶上身份
 
   // =========================================================
   // 📥 表單提交處理：API / 交易所帳號綁定
@@ -525,6 +595,7 @@ export default function RadarPage() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         strategy={selectedStrategy}
+        apiKey={apiKey} // ✨ 這裡把輸入的金鑰傳給 Modal
       />
     </div>
   );
