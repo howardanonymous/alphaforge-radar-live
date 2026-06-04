@@ -33,15 +33,13 @@ interface StrategyModalProps {
   isOpen: boolean;
   onClose: () => void;
   strategy: RadarItem | null;
-  apiKey: string; // ✨ 新增：用於後端驗證
+  apiKey: string; // 用於後端驗證
 }
 
 const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy, apiKey }) => {
-  // ✨ 新增：處理執行狀態與回饋訊息
   const [isExecuting, setIsExecuting] = useState(false);
   const [executeStatus, setExecuteStatus] = useState<{ type: 'idle' | 'success' | 'error', msg: string }>({ type: 'idle', msg: '' });
 
-  // 每次打開彈窗時重置狀態
   useEffect(() => {
     if (isOpen) setExecuteStatus({ type: 'idle', msg: '' });
   }, [isOpen]);
@@ -51,18 +49,15 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
   const isRetailOverpriced = strategy.manifold_odds > strategy.deribit_implied_odds;
   const spreadAbs = Math.abs(strategy.manifold_odds - strategy.deribit_implied_odds).toFixed(2);
   
-  // 量化模型參數
   const estSlippage = 0.45; 
   const estFee = 0.10;      
   const netArbitrageEdge = (parseFloat(spreadAbs) - (estSlippage + estFee)).toFixed(2);
 
-  // ✨ 新增：核心直連網關邏輯
   const handleExecuteVector = async () => {
     setIsExecuting(true);
     setExecuteStatus({ type: 'idle', msg: 'Forwarding vectors to gateway...' });
 
     try {
-      // 構建標準 JSON Payload，將訊號打包傳給後端
       const payload = {
         strategy_id: strategy.id,
         anomaly_type: strategy.anomaly_type,
@@ -76,12 +71,10 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
         timestamp: new Date().toISOString()
       };
 
-      // 呼叫後端執行路由 (請確保你的 FastAPI 後端有寫這支 API)
       const response = await fetch(`${BACKEND_HTTP_URL}/api/v1/execute`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          // 若無 apiKey 則帶入預設訪客標籤
           "Authorization": `Bearer ${apiKey.trim() || "PUBLIC_GUEST"}`
         },
         body: JSON.stringify(payload)
@@ -195,7 +188,6 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
           </div>
         </div>
 
-        {/* ✨ 新增：狀態回報區塊 */}
         {executeStatus.msg && (
           <div className={`mt-4 p-2 text-xs font-mono rounded border ${
             executeStatus.type === 'success' ? 'bg-emerald-950/30 border-emerald-900 text-emerald-400' : 
@@ -214,7 +206,6 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
           >
             Close Backtest
           </button>
-          {/* ✨ 更新：綁定實際發送邏輯，並加入 Loading 狀態防連點 */}
           <button 
             onClick={handleExecuteVector}
             disabled={isExecuting}
@@ -232,25 +223,21 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
 // 🖥️ 主控制面板：AlphaForge 雷達主畫面
 // =========================================================
 export default function RadarPage() {
-  // 核心數據流狀態
   const [currentCategory, setCurrentCategory] = useState<string>("CRYPTO");
   const [radarData, setRadarData] = useState<RadarItem[]>([]);
   const [syncTime, setSyncTime] = useState<string>("--:--:--");
   const [streamStatus, setStreamStatus] = useState<"ACTIVE" | "DISCONNECTED" | "CONNECTING">("CONNECTING");
   
-  // 互動表單狀態
   const [apiKey, setApiKey] = useState<string>("");
   const [bindVenue, setBindVenue] = useState<string>("POLYMARKET");
   const [accountUid, setAccountUid] = useState<string>("");
   const [bindLoading, setBindLoading] = useState<boolean>(false);
 
-  // 策略分析彈窗狀態
   const [selectedStrategy, setSelectedStrategy] = useState<RadarItem | null>(null);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 
   const wsRef = useRef<WebSocket | null>(null);
 
-  // 四大板塊路由宣告
   const sectors: SectorTab[] = [
     { id: "CRYPTO", label: "Crypto Sector", icon: "🔸" },
     { id: "STOCKS", label: "Stocks & Macro", icon: "📈" },
@@ -258,9 +245,6 @@ export default function RadarPage() {
     { id: "POLITICS", label: "Geopolitics (Excl. Elections)", icon: "🌐" },
   ];
 
-  // =========================================================
-  // 🔌 WebSocket 實時鏈路管理器 (含自動斷線重連機制)
-  // =========================================================
   useEffect(() => {
     function connectWebSocket() {
       if (wsRef.current) {
@@ -270,14 +254,12 @@ export default function RadarPage() {
       setStreamStatus("CONNECTING");
       const clientApiKey = apiKey.trim() || "PUBLIC_GUEST";
       
-      // 構建帶有板塊與金鑰認證的雙向 WS 網址
       const targetUrl = `${BACKEND_WS_URL}?category=${currentCategory}&api_key=${clientApiKey}`;
       const ws = new WebSocket(targetUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
         setStreamStatus("ACTIVE");
-        console.log(`🚀 WS Connected to Vector Grid // Sector: ${currentCategory}`);
       };
 
       ws.onmessage = (event) => {
@@ -285,8 +267,6 @@ export default function RadarPage() {
           const parsed = JSON.parse(event.data);
           if (parsed.category === currentCategory) {
             setRadarData(parsed.data || []);
-            
-            // 格式化本地同步時間
             const now = new Date();
             setSyncTime(`上午 ${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`);
           }
@@ -297,7 +277,6 @@ export default function RadarPage() {
 
       ws.onclose = () => {
         setStreamStatus("DISCONNECTED");
-        console.log("⚠️ WS Connection Severed. Re-indexing loop in 4s...");
         setTimeout(() => {
           if (wsRef.current?.readyState === WebSocket.CLOSED) {
             connectWebSocket();
@@ -317,22 +296,19 @@ export default function RadarPage() {
         wsRef.current.close();
       }
     };
-  }, [currentCategory, apiKey]); // ✨ 加入 apiKey 作為相依陣列，當使用者輸入金鑰時 WS 可以自動重新連線帶上身份
+  }, [currentCategory, apiKey]);
 
-  // =========================================================
-  // 📥 表單提交處理：API / 交易所帳號綁定
-  // =========================================================
   const handleAccountBinding = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!apiKey.trim() || !accountUid.trim()) {
-      alert("⚠️ Request Denied: Access API Key and Target UID cannot be null.");
+    if (!accountUid.trim()) {
+      alert("⚠️ Request Denied: Target UID cannot be null.");
       return;
     }
 
     setBindLoading(true);
     try {
       const queryParam = new URLSearchParams({
-        api_key: apiKey.trim(),
+        api_key: apiKey.trim() || "GUEST_LINK",
         platform: bindVenue,
         uid: accountUid.trim()
       });
@@ -343,7 +319,7 @@ export default function RadarPage() {
       
       const data = await response.json();
       if (response.ok && data.status === "success") {
-        alert(`✅ Success: ${data.message}`);
+        alert(`✅ Success: ${data.message} \n系統將自動驗證返傭關係，開通完整權限。`);
         setAccountUid("");
       } else {
         alert(`❌ Binding Failed: ${data.detail || "Server rejected matrix handoff."}`);
@@ -359,7 +335,6 @@ export default function RadarPage() {
   return (
     <div className="min-h-screen bg-[#050506] text-zinc-300 font-sans p-6 selection:bg-amber-500 selection:text-black">
       
-      {/* ── TOP NAV HEADER ── */}
       <header className="flex justify-between items-start border-b border-zinc-900 pb-4 mb-6">
         <div>
           <h1 className="text-xl font-black tracking-tight text-zinc-100 flex items-center gap-1.5">
@@ -374,7 +349,6 @@ export default function RadarPage() {
         </div>
       </header>
 
-      {/* ── SECTOR CONTROL TABS ── */}
       <nav className="flex gap-2 mb-6 overflow-x-auto pb-1 scrollbar-none">
         {sectors.map((sec) => (
           <button
@@ -392,7 +366,6 @@ export default function RadarPage() {
         ))}
       </nav>
 
-      {/* ── STATUS ENGINE BAR ── */}
       <section className="flex gap-2 mb-6 font-mono text-[10px]">
         <div className={`px-2 py-0.5 rounded font-bold border flex items-center gap-1.5 ${
           streamStatus === "ACTIVE" 
@@ -412,10 +385,8 @@ export default function RadarPage() {
         </div>
       </section>
 
-      {/* ── MAIN WORKSPACE GRID ── */}
       <main className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         
-        {/* LEFT COLUMN: LIVE ARBITRAGE CARDS (Occupies 2/3 width) */}
         <div className="lg:col-span-2 space-y-3">
           {radarData.length === 0 ? (
             <div className="border border-zinc-900 rounded-xl p-12 text-center bg-[#09090a]">
@@ -432,7 +403,6 @@ export default function RadarPage() {
                   key={item.id}
                   className="bg-[#0c0c0e] border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700/80 transition-all group relative overflow-hidden"
                 >
-                  {/* Card Header Info */}
                   <div className="flex justify-between items-start mb-3">
                     <span className="text-[10px] font-mono text-zinc-600 tracking-wider">
                       {item.id}
@@ -448,12 +418,10 @@ export default function RadarPage() {
                     </span>
                   </div>
 
-                  {/* Contract Subject Question */}
                   <h2 className="text-sm font-bold text-zinc-200 group-hover:text-zinc-100 transition-colors tracking-tight pr-6 mb-5 font-sans leading-snug">
                     {item.title}
                   </h2>
 
-                  {/* Multi-Venue Metrics Bar */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 items-center border-t border-zinc-900/60 pt-4 font-mono text-xs">
                     <div>
                       <span className="text-[10px] text-zinc-500 block mb-0.5">🏛️ Institutional Base</span>
@@ -464,7 +432,6 @@ export default function RadarPage() {
                       <span className="text-zinc-300 font-medium">{item.manifold_odds}%</span>
                     </div>
                     
-                    {/* Discrepancy Matrix Rate */}
                     <div className="col-span-2 sm:col-span-1 bg-zinc-950/80 px-3 py-1.5 border border-zinc-900 rounded flex justify-between sm:block">
                       <span className="text-[10px] text-zinc-500 sm:block">⚠ Spread:</span>
                       <span className={`font-bold ${isSpreadHigh ? "text-red-400" : "text-amber-500"}`}>
@@ -473,7 +440,6 @@ export default function RadarPage() {
                     </div>
                   </div>
 
-                  {/* Card Bottom Interactivity */}
                   <div className="flex justify-between items-center mt-5 border-t border-zinc-900/80 pt-3">
                     <button 
                       onClick={() => {
@@ -497,10 +463,8 @@ export default function RadarPage() {
           )}
         </div>
 
-        {/* RIGHT COLUMN: CONTROL MODULE PANE (Occupies 1/3 width) */}
         <aside className="space-y-6">
           
-          {/* Module 1: System Blueprint */}
           <div className="bg-[#0c0c0e] border border-zinc-900 rounded-xl p-5">
             <h3 className="text-xs font-bold text-amber-500 font-mono tracking-wider uppercase mb-2">
               Cross-Venue Intelligence
@@ -513,19 +477,19 @@ export default function RadarPage() {
             </div>
           </div>
 
-          {/* Module 2: Brokerage Channel Binding Form */}
           <div className="bg-[#0c0c0e] border border-zinc-900 rounded-xl p-5">
             <h3 className="text-xs font-bold text-zinc-200 font-mono tracking-wider uppercase mb-4 flex items-center gap-1.5">
               🔗 Brokerage Channel Binding
             </h3>
             <form onSubmit={handleAccountBinding} className="space-y-4 text-xs font-mono">
+              {/* Optional API Key Input (Can be hidden later if 100% relying on UID) */}
               <div>
-                <label className="text-[10px] text-zinc-500 block mb-1">Access API Key</label>
+                <label className="text-[10px] text-zinc-500 block mb-1">Access API Key (Optional)</label>
                 <input 
                   type="password" 
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Your AlphaForge API Key"
+                  placeholder="Enter token if you have one"
                   className="w-full bg-black border border-zinc-800 rounded px-3 py-2 text-zinc-300 focus:outline-none focus:border-amber-500 transition-colors"
                 />
               </div>
@@ -537,9 +501,9 @@ export default function RadarPage() {
                   onChange={(e) => setBindVenue(e.target.value)}
                   className="w-full bg-black border border-zinc-800 rounded px-3 py-2 text-zinc-300 focus:outline-none focus:border-amber-500 transition-colors"
                 >
+                  <option value="BINANCE">Binance</option>
                   <option value="POLYMARKET">Polymarket</option>
-                  <option value="BINANCE">Binance Futures</option>
-                  <option value="MANIFOLD">Manifold Markets</option>
+                  <option value="BYBIT">Bybit</option>
                   <option value="IB">Interactive Brokers</option>
                 </select>
               </div>
@@ -550,7 +514,7 @@ export default function RadarPage() {
                   type="text" 
                   value={accountUid}
                   onChange={(e) => setAccountUid(e.target.value)}
-                  placeholder="Enter exchange UID or wallet"
+                  placeholder="Enter registered UID"
                   className="w-full bg-black border border-zinc-800 rounded px-3 py-2 text-zinc-300 focus:outline-none focus:border-amber-500 transition-colors"
                 />
               </div>
@@ -565,37 +529,48 @@ export default function RadarPage() {
             </form>
           </div>
 
-          {/* Module 3: Premium Access Monetization Box */}
-          <div className="bg-[#0c0c0e] border border-zinc-900 rounded-xl p-5 relative overflow-hidden group">
-            <h3 className="text-xs font-bold text-zinc-300 font-mono tracking-wider uppercase mb-2 flex items-center gap-1.5">
-              💎 Premium Matrix Access
+          {/* ✨ 全新改版：Affiliate 生態系解鎖區塊 */}
+          <div className="bg-[#0c0c0e] border border-amber-900/40 rounded-xl p-5 relative overflow-hidden group shadow-[0_0_15px_rgba(245,158,11,0.05)]">
+            <div className="absolute top-0 right-0 bg-amber-500 text-black text-[9px] font-bold px-2 py-0.5 rounded-bl font-mono">100% FREE</div>
+            
+            <h3 className="text-xs font-bold text-amber-500 font-mono tracking-wider uppercase mb-2 flex items-center gap-1.5">
+              🔓 Ecosystem Unlock
             </h3>
-            <p className="text-[11px] text-zinc-500 font-sans leading-relaxed mb-4">
-              Unlock unlimited quantitative vector downloads, sub-second polling loops, and custom geoeconomic webhooks.
+            <p className="text-[11px] text-zinc-400 font-sans leading-relaxed mb-4">
+              捨棄傳統高昂月費。使用我們的專屬邀請碼註冊合作交易所，即可永久免費解鎖毫秒級 API 權限與自動化執行網關，並享有手續費返還。
             </p>
             
-            <div className="bg-zinc-950/60 border border-zinc-900 rounded p-4 text-center mb-4">
-              <div className="text-xl font-bold text-zinc-100 font-mono">$10 <span className="text-xs text-zinc-500 font-medium">USDC / 24 Hours</span></div>
-              <span className="text-[9px] font-mono text-zinc-600 block mt-0.5">Supports Solana & Base network</span>
+            <div className="space-y-2 mb-5">
+              <div className="bg-zinc-950/60 border border-zinc-800 rounded p-2.5 flex justify-between items-center">
+                <span className="text-[10px] font-mono text-zinc-300 flex items-center gap-1.5">
+                  <span className="text-yellow-500">🟨</span> Binance
+                </span>
+                <span className="text-[9px] text-emerald-400 font-mono border border-emerald-900/50 bg-emerald-950/30 px-1.5 py-0.5 rounded">20% Fee Kickback</span>
+              </div>
+              <div className="bg-zinc-950/60 border border-zinc-800 rounded p-2.5 flex justify-between items-center">
+                <span className="text-[10px] font-mono text-zinc-300 flex items-center gap-1.5">
+                  <span className="text-amber-500">⬛</span> Bybit
+                </span>
+                <span className="text-[9px] text-emerald-400 font-mono border border-emerald-900/50 bg-emerald-950/30 px-1.5 py-0.5 rounded">VIP Fee Tier</span>
+              </div>
             </div>
 
             <button 
-              onClick={() => alert("💼 Forwarding to Web3 Payment Protocol... Models are initialized per-session.")}
-              className="w-full py-2 bg-amber-500 text-black rounded font-mono text-xs font-bold hover:bg-amber-400 transition-colors shadow-md"
+              onClick={() => alert("🔗 [模擬跳轉] 註冊完成後，請在上方表格輸入您的 UID 進行綁定，系統驗證通過後將自動為您開啟全部權限。")}
+              className="w-full py-2 bg-zinc-100 text-black rounded font-mono text-xs font-bold hover:bg-white transition-colors shadow-md"
             >
-              Rent Access Node
+              Get Referral Links
             </button>
           </div>
 
         </aside>
       </main>
 
-      {/* ── FOOTER DOCK MODAL ── */}
       <StrategyModal 
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         strategy={selectedStrategy}
-        apiKey={apiKey} // ✨ 這裡把輸入的金鑰傳給 Modal
+        apiKey={apiKey}
       />
     </div>
   );
