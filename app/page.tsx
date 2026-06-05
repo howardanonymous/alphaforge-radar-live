@@ -20,6 +20,27 @@ interface RadarItem {
   anomaly_type: string;
 }
 
+interface PerformanceData {
+  is_resolved: number;     // 0: 監控中, 1: 已結算, -1: 已取消
+  actual_outcome: number | null; // 1.0 = YES, 0.0 = NO
+  brier_score: number | null;
+  simulated_pnl: number | null;  
+  resolved_at: string | null;
+  external_market_id: string | null; // 💡 補齊屬性避免 TS 報錯
+}
+
+interface HistoryItem {
+  id: number;
+  title: string;
+  source_platform: string;
+  retail_odds: number;
+  institutional_odds: number;
+  deviation_rate: number;
+  anomaly_type: string;
+  created_at: string;
+  performance: PerformanceData;
+}
+
 interface SectorTab {
   id: string;
   label: string;
@@ -32,20 +53,24 @@ interface SectorTab {
 interface StrategyModalProps {
   isOpen: boolean;
   onClose: () => void;
-  strategy: RadarItem | null;
+  strategy: RadarItem | HistoryItem | null;
 }
 
 const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy }) => {
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    if (isOpen) setCopied(false);
-  }, [isOpen]);
+  // 💡 【優化 1】徹底移除內部的 useEffect(..., [isOpen])！
+  // 狀態重置完全交給父層的 key 機制處理，符合 React 官方最新指引
 
   if (!isOpen || !strategy) return null;
 
-  const isRetailOverpriced = strategy.manifold_odds > strategy.deribit_implied_odds;
-  const spreadAbs = Math.abs(strategy.manifold_odds - strategy.deribit_implied_odds).toFixed(2);
+  // 用辨識度特徵（manifold_odds）來做型別守衛，避免出現 type 'never' 錯誤
+  const isRadarItem = 'manifold_odds' in strategy;
+  const manifoldOdds = isRadarItem ? (strategy as RadarItem).manifold_odds : (strategy as HistoryItem).retail_odds;
+  const deribitOdds = isRadarItem ? (strategy as RadarItem).deribit_implied_odds : (strategy as HistoryItem).institutional_odds;
+
+  const isRetailOverpriced = manifoldOdds > deribitOdds;
+  const spreadAbs = Math.abs(manifoldOdds - deribitOdds).toFixed(2);
   
   const estSlippage = 0.45; 
   const estFee = 0.10;      
@@ -71,7 +96,7 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
         <div className="flex justify-between items-start mb-6">
           <div>
             <span className="text-xs text-amber-500 font-mono tracking-widest uppercase block mb-1">
-              QUANT STRATEGY VECTOR // {strategy.id}
+              QUANT STRATEGY VECTOR // {isRadarItem ? strategy.id : `HIST-${strategy.id}`}
             </span>
             <h3 className="text-lg font-bold text-zinc-100 tracking-tight leading-snug font-sans">
               {strategy.title}
@@ -88,11 +113,11 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
         <div className="grid grid-cols-3 gap-4 p-4 bg-zinc-950/60 border border-zinc-900 rounded-lg mb-6 font-mono">
           <div>
             <span className="text-xs text-zinc-500 block mb-1">Institutional Base</span>
-            <span className="text-base font-semibold text-emerald-400">{strategy.deribit_implied_odds}%</span>
+            <span className="text-base font-semibold text-emerald-400">{deribitOdds}%</span>
           </div>
           <div>
             <span className="text-xs text-zinc-500 block mb-1">Retail Sentiment</span>
-            <span className="text-base font-semibold text-amber-500">{strategy.manifold_odds}%</span>
+            <span className="text-base font-semibold text-amber-500">{manifoldOdds}%</span>
           </div>
           <div>
             <span className="text-xs text-zinc-500 block mb-1">Gross Alpha Spread</span>
@@ -182,7 +207,13 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
 // =========================================================
 export default function RadarPage() {
   const [currentCategory, setCurrentCategory] = useState<string>("CRYPTO");
+  const [viewMode, setViewMode] = useState<"LIVE" | "HISTORY">("LIVE"); 
+  
   const [radarData, setRadarData] = useState<RadarItem[]>([]);
+  const [historyData, setHistoryData] = useState<HistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState<boolean>(false);
+  const [resolvedOnly, setResolvedOnly] = useState<boolean>(false); 
+
   const [syncTime, setSyncTime] = useState<string>("--:--:--");
   const [streamStatus, setStreamStatus] = useState<"ACTIVE" | "DISCONNECTED" | "CONNECTING">("CONNECTING");
   
@@ -191,7 +222,7 @@ export default function RadarPage() {
   const [accountUid, setAccountUid] = useState<string>("");
   const [bindLoading, setBindLoading] = useState<boolean>(false);
 
-  const [selectedStrategy, setSelectedStrategy] = useState<RadarItem | null>(null);
+  const [selectedStrategy, setSelectedStrategy] = useState<RadarItem | HistoryItem | null>(null);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -203,22 +234,24 @@ export default function RadarPage() {
     { id: "POLITICS", label: "Geopolitics (Excl. Elections)", icon: "🌐" },
   ];
 
+  // 📡 WebSocket 串流接收引擎
   useEffect(() => {
-    function connectWebSocket() {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+    if (viewMode !== "LIVE") return;
 
-      setStreamStatus("CONNECTING");
+    function connectWebSocket() {
+      if (wsRef.current) wsRef.current.close();
+
+      // 💡 【優化 2】將同步狀態變更放入微任務佇列，避開同步渲染週期的 setState 警告
+      queueMicrotask(() => {
+        setStreamStatus("CONNECTING");
+      });
+
       const clientApiKey = apiKey.trim() || "PUBLIC_GUEST";
-      
       const targetUrl = `${BACKEND_WS_URL}?category=${currentCategory}&api_key=${encodeURIComponent(clientApiKey)}`;
       const ws = new WebSocket(targetUrl);
       wsRef.current = ws;
 
-      ws.onopen = () => {
-        setStreamStatus("ACTIVE");
-      };
+      ws.onopen = () => setStreamStatus("ACTIVE");
 
       ws.onmessage = (event) => {
         try {
@@ -236,25 +269,50 @@ export default function RadarPage() {
       ws.onclose = () => {
         setStreamStatus("DISCONNECTED");
         setTimeout(() => {
-          if (wsRef.current?.readyState === WebSocket.CLOSED) {
-            connectWebSocket();
-          }
+          if (wsRef.current?.readyState === WebSocket.CLOSED) connectWebSocket();
         }, 4000);
-      };
-
-      ws.onerror = (err) => {
-        console.error("WS Pipeline Error:", err);
       };
     }
 
     connectWebSocket();
 
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+      if (wsRef.current) wsRef.current.close();
     };
-  }, [currentCategory, apiKey]);
+  }, [currentCategory, apiKey, viewMode]);
+
+  // 📊 歷史回測資料調閱引擎
+  const fetchHistoryLogs = async () => {
+    setHistoryLoading(true);
+    try {
+      const queryParam = new URLSearchParams({
+        category: currentCategory,
+        limit: "40",
+        resolved_only: resolvedOnly.toString(),
+        api_key: apiKey.trim() || "PUBLIC_GUEST"
+      });
+
+      const res = await fetch(`${BACKEND_HTTP_URL}/api/v1/radar/history?${queryParam.toString()}`);
+      const result = await res.json();
+      if (res.ok && result.status === "success") {
+        setHistoryData(result.data || []);
+      }
+    } catch (err) {
+      console.error("Failed to sync structural backtest history:", err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  // 💡 【優化 3】使用 setTimeout 異步切換排程，徹底解決 Effect 內同步 setState 造成的級聯渲染錯誤
+  useEffect(() => {
+    if (viewMode === "HISTORY") {
+      const timer = setTimeout(() => {
+        fetchHistoryLogs();
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [currentCategory, viewMode, resolvedOnly, apiKey]);
 
   const handleAccountBinding = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -286,6 +344,7 @@ export default function RadarPage() {
       console.error(err);
       alert("❌ Critical Connection Failure: Could not reach the backend cluster.");
     } finally {
+      setAccountUid("");
       setBindLoading(false);
     }
   };
@@ -303,9 +362,46 @@ export default function RadarPage() {
           </p>
         </div>
         <div className="text-right font-mono text-[11px] text-zinc-500 shrink-0">
-          Sync Time: <span className="text-zinc-400">{syncTime}</span>
+          {viewMode === "LIVE" ? `Sync Time: ${syncTime}` : "Mode: Archive Verification"}
         </div>
       </header>
+
+      <div className="flex justify-between items-center bg-[#0d0d11] border border-zinc-900 rounded-xl p-2 mb-6 gap-4">
+        <div className="flex bg-black p-1 rounded-lg border border-zinc-800/60">
+          <button 
+            onClick={() => setViewMode("LIVE")}
+            className={`px-4 py-1.5 text-xs font-mono rounded font-medium transition-all ${
+              viewMode === "LIVE" 
+                ? "bg-amber-500 text-black font-bold shadow-md" 
+                : "text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            📡 即時異常雷達 (Live Radar)
+          </button>
+          <button 
+            onClick={() => setViewMode("HISTORY")}
+            className={`px-4 py-1.5 text-xs font-mono rounded font-medium transition-all ${
+              viewMode === "HISTORY" 
+                ? "bg-amber-500 text-black font-bold shadow-md" 
+                : "text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            📊 歷史戰績回溯 (Backtest Matrix)
+          </button>
+        </div>
+
+        {viewMode === "HISTORY" && (
+          <label className="flex items-center gap-2 cursor-pointer font-mono text-xs text-zinc-400 select-none pr-2">
+            <input 
+              type="checkbox"
+              checked={resolvedOnly}
+              onChange={(e) => setResolvedOnly(e.target.checked)}
+              className="accent-amber-500 rounded border-zinc-800"
+            />
+            只看已結算戰績 (Resolved Only)
+          </label>
+        )}
+      </div>
 
       <nav className="flex gap-2 mb-6 overflow-x-auto pb-1 scrollbar-none">
         {sectors.map((sec) => (
@@ -325,16 +421,22 @@ export default function RadarPage() {
       </nav>
 
       <section className="flex gap-2 mb-6 font-mono text-[10px]">
-        <div className={`px-2 py-0.5 rounded font-bold border flex items-center gap-1.5 ${
-          streamStatus === "ACTIVE" 
-            ? "bg-emerald-950/20 border-emerald-800/60 text-emerald-400" 
-            : streamStatus === "CONNECTING"
-            ? "bg-amber-950/20 border-amber-800/60 text-amber-500 animate-pulse"
-            : "bg-red-950/20 border-red-800/60 text-red-400"
-        }`}>
-          <span className={`w-1 h-1 rounded-full ${streamStatus === "ACTIVE" ? "bg-emerald-400 animate-pulse" : "bg-red-400"}`} />
-          STREAM_LIVE_{streamStatus}
-        </div>
+        {viewMode === "LIVE" ? (
+          <div className={`px-2 py-0.5 rounded font-bold border flex items-center gap-1.5 ${
+            streamStatus === "ACTIVE" 
+              ? "bg-emerald-950/20 border-emerald-800/60 text-emerald-400" 
+              : streamStatus === "CONNECTING"
+              ? "bg-amber-950/20 border-amber-800/60 text-amber-500 animate-pulse"
+              : "bg-red-950/20 border-red-800/60 text-red-400"
+          }`}>
+            <span className={`w-1 h-1 rounded-full ${streamStatus === "ACTIVE" ? "bg-emerald-400 animate-pulse" : "bg-red-400"}`} />
+            STREAM_LIVE_{streamStatus}
+          </div>
+        ) : (
+          <div className="px-2 py-0.5 rounded font-bold border bg-purple-950/20 border-purple-800/60 text-purple-400">
+            📚 PERFORMANCE_HIST_DATABASE_CONNECTED
+          </div>
+        )}
         <div className="px-2 py-0.5 rounded bg-zinc-900/60 border border-zinc-800/80 text-zinc-400">
           Core Engine: <span className="text-zinc-300">Cython_v10_Matrix</span>
         </div>
@@ -346,83 +448,166 @@ export default function RadarPage() {
       <main className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         
         <div className="lg:col-span-2 space-y-3">
-          {radarData.length === 0 ? (
-            <div className="border border-zinc-900 rounded-xl p-12 text-center bg-[#09090a]">
-              <span className="block text-xl mb-2 animate-bounce">⏳</span>
-              <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest">
-                {streamStatus === "CONNECTING" ? "Establishing Secure Stream..." : "No Mispricing Arcs Detected In This Sector"}
-              </p>
-            </div>
-          ) : (
-            radarData.map((item) => {
-              const isSpreadHigh = item.deviation_rate > 10;
-              return (
-                <div 
-                  key={item.id}
-                  className="bg-[#0c0c0e] border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700/80 transition-all group relative overflow-hidden"
-                >
-                  <div className="flex justify-between items-start mb-3">
-                    <span className="text-[10px] font-mono text-zinc-600 tracking-wider">
-                      {item.id}
-                    </span>
-                    <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded font-semibold tracking-wide ${
-                      item.anomaly_type.includes("CRITICAL") 
-                        ? "bg-red-950/40 text-red-400 border border-red-900/40" 
-                        : item.anomaly_type.includes("MISPRICING")
-                        ? "bg-amber-950/40 text-amber-400 border border-amber-900/40"
+          
+          {viewMode === "LIVE" && (
+            radarData.length === 0 ? (
+              <div className="border border-zinc-900 rounded-xl p-12 text-center bg-[#09090a]">
+                <span className="block text-xl mb-2 animate-bounce">⏳</span>
+                <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest">
+                  {streamStatus === "CONNECTING" ? "Establishing Secure Stream..." : "No Mispricing Arcs Detected In This Sector"}
+                </p>
+              </div>
+            ) : (
+              radarData.map((item) => {
+                const isSpreadHigh = item.deviation_rate > 10;
+                return (
+                  <div 
+                    key={item.id}
+                    className="bg-[#0c0c0e] border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700/80 transition-all group relative overflow-hidden"
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <span className="text-[10px] font-mono text-zinc-600 tracking-wider">{item.id}</span>
+                      <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded font-semibold tracking-wide ${
+                        item.anomaly_type.includes("CRITICAL") ? "bg-red-950/40 text-red-400 border border-red-900/40" 
+                        : item.anomaly_type.includes("MISPRICING") ? "bg-amber-950/40 text-amber-400 border border-amber-900/40"
                         : "bg-zinc-900 text-zinc-500"
-                    }`}>
-                      {item.anomaly_type}
-                    </span>
-                  </div>
-
-                  <h2 className="text-sm font-bold text-zinc-200 group-hover:text-zinc-100 transition-colors tracking-tight pr-6 mb-5 font-sans leading-snug">
-                    {item.title}
-                  </h2>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 items-center border-t border-zinc-900/60 pt-4 font-mono text-xs">
-                    <div>
-                      <span className="text-[10px] text-zinc-500 block mb-0.5">🏛️ Institutional Base</span>
-                      <span className="text-zinc-300 font-medium">{item.deribit_implied_odds}%</span>
+                      }`}>{item.anomaly_type}</span>
                     </div>
-                    <div>
-                      <span className="text-[10px] text-zinc-500 block mb-0.5">👥 Retail Odds (Manifold)</span>
-                      <span className="text-zinc-300 font-medium">{item.manifold_odds}%</span>
+                    <h2 className="text-sm font-bold text-zinc-200 group-hover:text-zinc-100 transition-colors tracking-tight pr-6 mb-5 font-sans leading-snug">{item.title}</h2>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 items-center border-t border-zinc-900/60 pt-4 font-mono text-xs">
+                      <div>
+                        <span className="text-[10px] text-zinc-500 block mb-0.5">🏛️ Institutional Base</span>
+                        <span className="text-zinc-300 font-medium">{item.deribit_implied_odds}%</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-zinc-500 block mb-0.5">👥 Retail Odds (Manifold)</span>
+                        <span className="text-zinc-300 font-medium">{item.manifold_odds}%</span>
+                      </div>
+                      <div className="col-span-2 sm:col-span-1 bg-zinc-950/80 px-3 py-1.5 border border-zinc-900 rounded flex justify-between sm:block">
+                        <span className="text-[10px] text-zinc-500 sm:block">⚠ Spread:</span>
+                        <span className={`font-bold ${isSpreadHigh ? "text-red-400" : "text-amber-500"}`}>{item.deviation_rate}%</span>
+                      </div>
                     </div>
-                    
-                    <div className="col-span-2 sm:col-span-1 bg-zinc-950/80 px-3 py-1.5 border border-zinc-900 rounded flex justify-between sm:block">
-                      <span className="text-[10px] text-zinc-500 sm:block">⚠ Spread:</span>
-                      <span className={`font-bold ${isSpreadHigh ? "text-red-400" : "text-amber-500"}`}>
-                        {item.deviation_rate}%
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-between items-center mt-5 border-t border-zinc-900/80 pt-3">
-                    <button 
-                      onClick={() => {
-                        setSelectedStrategy(item);
-                        setIsModalOpen(true);
-                      }}
-                      className="px-3 py-1.5 text-xs font-semibold border border-amber-500/80 text-amber-500 rounded bg-transparent hover:bg-amber-500 hover:text-black transition-all tracking-wide"
-                    >
-                      Analyze Strategy
-                    </button>
-                    
-                    <div className="flex gap-3 text-[10px] text-zinc-500 font-mono">
-                      <span>Execute Arbitrage:</span>
-                      <a href="https://polymarket.com" target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-amber-500 transition-colors underline underline-offset-2">Polymarket ↗</a>
-                      <a href="https://manifold.markets" target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-amber-500 transition-colors underline underline-offset-2">Manifold ↗</a>
+                    <div className="flex justify-between items-center mt-5 border-t border-zinc-900/80 pt-3">
+                      <button 
+                        onClick={() => { setSelectedStrategy(item); setIsModalOpen(true); }}
+                        className="px-3 py-1.5 text-xs font-semibold border border-amber-500/80 text-amber-500 rounded bg-transparent hover:bg-amber-500 hover:text-black transition-all tracking-wide"
+                      >
+                        Analyze Strategy
+                      </button>
+                      <div className="flex gap-3 text-[10px] text-zinc-500 font-mono">
+                        <a href="https://polymarket.com" target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-amber-500 transition-colors underline underline-offset-2">Polymarket ↗</a>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })
+                )
+              })
+            )
+          )}
+
+          {viewMode === "HISTORY" && (
+            historyLoading ? (
+              <div className="border border-zinc-900 rounded-xl p-12 text-center bg-[#09090a] font-mono text-xs animate-pulse">
+                🔄 正在穿梭核心歷史數據集 (Fetching Performance Log Matrix)...
+              </div>
+            ) : historyData.length === 0 ? (
+              <div className="border border-zinc-900 rounded-xl p-12 text-center bg-[#09090a] font-mono text-xs text-zinc-500">
+                📭 該板塊歷史數據庫目前尚無訊號紀錄落地。
+              </div>
+            ) : (
+              historyData.map((rec) => {
+                const pnl = rec.performance.simulated_pnl;
+                const bs = rec.performance.brier_score;
+                
+                return (
+                  <div 
+                    key={rec.id}
+                    className="bg-[#0b0b0d] border border-zinc-900 rounded-xl p-5 hover:border-zinc-800 transition-all relative font-mono text-xs"
+                  >
+                    <div className="flex justify-between items-center mb-3">
+                      <div className="flex gap-2 items-center">
+                        <span className="text-[10px] text-zinc-600">ID: #{rec.id}</span>
+                        <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${
+                          rec.performance.is_resolved === 1 ? "bg-emerald-950/50 text-emerald-400 border border-emerald-900/60"
+                          : rec.performance.is_resolved === -1 ? "bg-zinc-900 text-zinc-500"
+                          : "bg-blue-950/40 text-blue-400 border border-blue-900/50 animate-pulse"
+                        }`}>
+                          {rec.performance.is_resolved === 1 ? "✓ 已結算 RESOLVED" 
+                           : rec.performance.is_resolved === -1 ? "∅ 已取消 VOID" 
+                           : "⏳ 監控中 MONITORING"}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-zinc-500">{rec.created_at}</span>
+                    </div>
+
+                    <h3 className="text-zinc-200 font-bold font-sans text-sm tracking-tight leading-snug mb-4">{rec.title}</h3>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-zinc-950/50 p-3 rounded-lg border border-zinc-900 mb-4 text-[11px]">
+                      <div>
+                        <span className="text-zinc-500 block text-[10px]">散戶機率</span>
+                        <span className="text-zinc-300">{rec.retail_odds}%</span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500 block text-[10px]">機構隱含</span>
+                        <span className="text-zinc-300">{rec.institutional_odds}%</span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500 block text-[10px]">乖離 Spread</span>
+                        <span className="text-amber-500 font-bold">+{rec.deviation_rate}%</span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500 block text-[10px]">外部市場ID</span>
+                        <span className="text-zinc-400 underline truncate block">{rec.performance.external_market_id || "N/A"}</span>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-zinc-900/60 pt-3 flex justify-between items-center bg-zinc-900/10 px-1 rounded">
+                      <div className="flex gap-6">
+                        <div>
+                          <span className="text-[10px] text-zinc-500 block">模擬損益 PnL (100U)</span>
+                          {pnl !== null ? (
+                            <span className={`font-bold text-sm ${pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                              {pnl >= 0 ? `+${pnl.toFixed(2)}` : pnl.toFixed(2)} U
+                            </span>
+                          ) : (
+                            <span className="text-zinc-600 text-sm">--</span>
+                          )}
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] text-zinc-500 block">Brier Score (精準度)</span>
+                          {bs !== null ? (
+                            <span className="text-purple-400 font-bold text-sm">{bs.toFixed(4)}</span>
+                          ) : (
+                            <span className="text-zinc-600 text-sm">--</span>
+                          )}
+                        </div>
+
+                        <div className="hidden sm:block">
+                          <span className="text-[10px] text-zinc-500 block">實際結果 Outcome</span>
+                          <span className="text-zinc-300 font-semibold">
+                            {rec.performance.actual_outcome === 1.0 ? "🟩 YES (發生)" 
+                             : rec.performance.actual_outcome === 0.0 ? "🟥 NO (沒發生)" 
+                             : "⏳ 未知"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => { setSelectedStrategy(rec); setIsModalOpen(true); }}
+                        className="px-2.5 py-1 text-[11px] border border-zinc-800 text-zinc-400 rounded hover:text-zinc-200 hover:border-zinc-700 transition-all"
+                      >
+                        策略回溯
+                      </button>
+                    </div>
+                  </div>
+                )
+              })
+            )
           )}
         </div>
 
         <aside className="space-y-6">
-          
           <div className="bg-[#0c0c0e] border border-zinc-900 rounded-xl p-5">
             <h3 className="text-xs font-bold text-amber-500 font-mono tracking-wider uppercase mb-2">
               Cross-Venue Intelligence
@@ -518,11 +703,12 @@ export default function RadarPage() {
               Get Referral Links
             </button>
           </div>
-
         </aside>
       </main>
 
+      {/* 💡 【關鍵改動】加入動態 key 控制。當切換不同策略或關閉時，React 會直接銷毀並重新生成 Modal 實例 */}
       <StrategyModal 
+        key={isModalOpen && selectedStrategy ? ('manifold_odds' in selectedStrategy ? selectedStrategy.id : `hist-${selectedStrategy.id}`) : 'closed'}
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         strategy={selectedStrategy}
