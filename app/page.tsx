@@ -27,21 +27,19 @@ interface SectorTab {
 }
 
 // =========================================================
-// 🚀 核心子組件：高階策略分析矩陣彈窗 (Strategy Modal)
+// 🚀 核心子組件：高階策略分析矩陣彈窗 (純訊號導流版)
 // =========================================================
 interface StrategyModalProps {
   isOpen: boolean;
   onClose: () => void;
   strategy: RadarItem | null;
-  apiKey: string; // 用於後端驗證
 }
 
-const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy, apiKey }) => {
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [executeStatus, setExecuteStatus] = useState<{ type: 'idle' | 'success' | 'error', msg: string }>({ type: 'idle', msg: '' });
+const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy }) => {
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (isOpen) setExecuteStatus({ type: 'idle', msg: '' });
+    if (isOpen) setCopied(false);
   }, [isOpen]);
 
   if (!isOpen || !strategy) return null;
@@ -53,53 +51,16 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
   const estFee = 0.10;      
   const netArbitrageEdge = (parseFloat(spreadAbs) - (estSlippage + estFee)).toFixed(2);
 
-  const handleExecuteVector = async () => {
-    setIsExecuting(true);
-    setExecuteStatus({ type: 'idle', msg: 'Forwarding vectors to gateway...' });
-
-    try {
-      // 1. 建立符合後端 Pydantic (VectorExecutePayload) 預期的資料結構
-      const payload = {
-        strategy_id: strategy.id,
-        title: strategy.title,
-        net_arbitrage_edge: parseFloat(netArbitrageEdge),
-        route_details: [
-          isRetailOverpriced ? "SHORT Polymarket/Manifold (NO)" : "LONG Polymarket/Manifold (YES)",
-          isRetailOverpriced ? "LONG Deribit/Binance (Delta Hedge)" : "SHORT Deribit/Binance (Delta Hedge)"
-        ]
-      };
-
-      // 2. 將 api_key 作為 Query Parameter 帶在 URL 後方，符合後端 Depends 驗證邏輯
-      const clientApiKey = apiKey.trim() || "PUBLIC_GUEST";
-      const targetUrl = `${BACKEND_HTTP_URL}/api/v1/vector/execute?api_key=${encodeURIComponent(clientApiKey)}`;
-
-      const response = await fetch(targetUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.status === "success") {
-        setExecuteStatus({ 
-          type: 'success', 
-          msg: `✅ 執行成功: 已鎖定 +${data.execution_summary.net_arbitrage_edge_locked}% 價差利潤！` 
-        });
-      } else {
-        setExecuteStatus({ 
-          type: 'error', 
-          msg: `❌ 路由拒絕: ${data.detail || 'Execution rejected by routing matrix.'}` 
-        });
-      }
-    } catch (err) {
-      console.error(err);
-      setExecuteStatus({ type: 'error', msg: '❌ 致命錯誤: 無法連接後端叢集' });
-    } finally {
-      setIsExecuting(false);
-    }
+  const handleCopyStrategy = () => {
+    const text = `【AlphaForge 結構性套利策略】\n標的: ${strategy.title}\n預估淨利潤: +${netArbitrageEdge}%\n步驟 1: ${
+      isRetailOverpriced ? "SHORT/NO @ Polymarket/Manifold" : "LONG/YES @ Polymarket/Manifold"
+    }\n步驟 2: ${
+      isRetailOverpriced ? "LONG/Delta Hedge @ Deribit/Binance" : "SHORT/Delta Hedge @ Deribit/Binance"
+    }`;
+    
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -180,7 +141,7 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
           </div>
         </div>
 
-        <div className="border-t border-zinc-900 pt-4 font-mono text-xs space-y-2 text-zinc-500">
+        <div className="border-t border-zinc-900 pt-4 font-mono text-xs space-y-2 text-zinc-500 mb-6">
           <div className="flex justify-between">
             <span>Estimated Execution Slippage Model:</span>
             <span className="text-zinc-400">-{estSlippage}%</span>
@@ -195,31 +156,21 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
           </div>
         </div>
 
-        {executeStatus.msg && (
-          <div className={`mt-4 p-2 text-xs font-mono rounded border ${
-            executeStatus.type === 'success' ? 'bg-emerald-950/30 border-emerald-900 text-emerald-400' : 
-            executeStatus.type === 'error' ? 'bg-red-950/30 border-red-900 text-red-400' : 
-            'bg-zinc-900 border-zinc-800 text-zinc-400 animate-pulse'
-          }`}>
-            {executeStatus.msg}
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 gap-3 mt-6">
+        <div className="grid grid-cols-2 gap-3">
           <button 
-            onClick={onClose}
-            disabled={isExecuting}
-            className="w-full py-2 text-xs font-medium text-zinc-400 border border-zinc-800 rounded bg-zinc-900/50 hover:bg-zinc-900 hover:text-zinc-200 transition-colors disabled:opacity-50"
+            onClick={handleCopyStrategy}
+            className="w-full py-2.5 text-xs font-mono border border-zinc-800 rounded bg-zinc-900/50 hover:bg-zinc-900 hover:text-zinc-200 transition-colors"
           >
-            Close Backtest
+            {copied ? "📋 COPIED STRATEGY!" : "COPY STRATEGY VECTOR"}
           </button>
-          <button 
-            onClick={handleExecuteVector}
-            disabled={isExecuting}
-            className="w-full py-2 text-xs font-semibold bg-amber-500 text-black rounded hover:bg-amber-400 shadow-lg shadow-amber-950/20 transition-all font-mono disabled:bg-amber-700 disabled:text-zinc-400 disabled:cursor-not-allowed"
+          <a 
+            href="https://polymarket.com" 
+            target="_blank" 
+            rel="noreferrer"
+            className="w-full py-2.5 text-xs font-semibold bg-amber-500 text-black rounded hover:bg-amber-400 shadow-lg shadow-amber-950/20 transition-all font-mono text-center block"
           >
-            {isExecuting ? "EXECUTING..." : "EXECUTE VECTOR VIA API"}
-          </button>
+            OPEN VENUE TO ARBITRAGE ↗
+          </a>
         </div>
       </div>
     </div>
@@ -575,7 +526,6 @@ export default function RadarPage() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         strategy={selectedStrategy}
-        apiKey={apiKey}
       />
     </div>
   );
