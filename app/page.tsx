@@ -26,7 +26,7 @@ interface PerformanceData {
   brier_score: number | null;
   simulated_pnl: number | null;  
   resolved_at: string | null;
-  external_market_id: string | null; // 💡 補齊屬性避免 TS 報錯
+  external_market_id: string | null; 
 }
 
 interface HistoryItem {
@@ -59,12 +59,8 @@ interface StrategyModalProps {
 const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy }) => {
   const [copied, setCopied] = useState(false);
 
-  // 💡 【優化 1】徹底移除內部的 useEffect(..., [isOpen])！
-  // 狀態重置完全交給父層的 key 機制處理，符合 React 官方最新指引
-
   if (!isOpen || !strategy) return null;
 
-  // 用辨識度特徵（manifold_odds）來做型別守衛，避免出現 type 'never' 錯誤
   const isRadarItem = 'manifold_odds' in strategy;
   const manifoldOdds = isRadarItem ? (strategy as RadarItem).manifold_odds : (strategy as HistoryItem).retail_odds;
   const deribitOdds = isRadarItem ? (strategy as RadarItem).deribit_implied_odds : (strategy as HistoryItem).institutional_odds;
@@ -77,8 +73,9 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
   const netArbitrageEdge = (parseFloat(spreadAbs) - (estSlippage + estFee)).toFixed(2);
 
   const handleCopyStrategy = () => {
+    // 💡 複製文字已移除 Polymarket 標記
     const text = `【AlphaForge 結構性套利策略】\n標的: ${strategy.title}\n預估淨利潤: +${netArbitrageEdge}%\n步驟 1: ${
-      isRetailOverpriced ? "SHORT/NO @ Polymarket/Manifold" : "LONG/YES @ Polymarket/Manifold"
+      isRetailOverpriced ? "SHORT/NO @ Manifold Markets" : "LONG/YES @ Manifold Markets"
     }\n步驟 2: ${
       isRetailOverpriced ? "LONG/Delta Hedge @ Deribit/Binance" : "SHORT/Delta Hedge @ Deribit/Binance"
     }`;
@@ -137,9 +134,9 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
               <div>
                 <p className="text-sm text-zinc-300">
                   {isRetailOverpriced ? (
-                    <>在 <span className="text-amber-400 font-semibold">Polymarket / Manifold</span> 建立 <span className="text-red-500 font-semibold">Short / NO</span> 倉位</>
+                    <>在 <span className="text-amber-400 font-semibold">Manifold Markets</span> 建立 <span className="text-red-500 font-semibold">Short / NO</span> 倉位</>
                   ) : (
-                    <>在 <span className="text-amber-400 font-semibold">Polymarket / Manifold</span> 買入 <span className="text-emerald-400 font-semibold">Long / YES</span> 倉位</>
+                    <>在 <span className="text-amber-400 font-semibold">Manifold Markets</span> 買入 <span className="text-emerald-400 font-semibold">Long / YES</span> 倉位</>
                   )}
                 </p>
                 <span className="text-xs text-zinc-500 font-mono block mt-1">
@@ -188,8 +185,9 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
           >
             {copied ? "📋 COPIED STRATEGY!" : "COPY STRATEGY VECTOR"}
           </button>
+          {/* 💡 按鈕跳轉目標已更改為 Manifold */}
           <a 
-            href="https://polymarket.com" 
+            href="https://manifold.markets" 
             target="_blank" 
             rel="noreferrer"
             className="w-full py-2.5 text-xs font-semibold bg-amber-500 text-black rounded hover:bg-amber-400 shadow-lg shadow-amber-950/20 transition-all font-mono text-center block"
@@ -218,7 +216,7 @@ export default function RadarPage() {
   const [streamStatus, setStreamStatus] = useState<"ACTIVE" | "DISCONNECTED" | "CONNECTING">("CONNECTING");
   
   const [apiKey, setApiKey] = useState<string>("");
-  const [bindVenue, setBindVenue] = useState<string>("POLYMARKET");
+  const [bindVenue, setBindVenue] = useState<string>("MANIFOLD"); // 💡 預設初始值改為 MANIFOLD
   const [accountUid, setAccountUid] = useState<string>("");
   const [bindLoading, setBindLoading] = useState<boolean>(false);
 
@@ -234,14 +232,12 @@ export default function RadarPage() {
     { id: "POLITICS", label: "Geopolitics (Excl. Elections)", icon: "🌐" },
   ];
 
-  // 📡 WebSocket 串流接收引擎
   useEffect(() => {
     if (viewMode !== "LIVE") return;
 
     function connectWebSocket() {
       if (wsRef.current) wsRef.current.close();
 
-      // 💡 【優化 2】將同步狀態變更放入微任務佇列，避開同步渲染週期的 setState 警告
       queueMicrotask(() => {
         setStreamStatus("CONNECTING");
       });
@@ -281,7 +277,6 @@ export default function RadarPage() {
     };
   }, [currentCategory, apiKey, viewMode]);
 
-  // 📊 歷史回測資料調閱引擎
   const fetchHistoryLogs = async () => {
     setHistoryLoading(true);
     try {
@@ -304,7 +299,6 @@ export default function RadarPage() {
     }
   };
 
-  // 💡 【優化 3】使用 setTimeout 異步切換排程，徹底解決 Effect 內同步 setState 造成的級聯渲染錯誤
   useEffect(() => {
     if (viewMode === "HISTORY") {
       const timer = setTimeout(() => {
@@ -496,7 +490,8 @@ export default function RadarPage() {
                         Analyze Strategy
                       </button>
                       <div className="flex gap-3 text-[10px] text-zinc-500 font-mono">
-                        <a href="https://polymarket.com" target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-amber-500 transition-colors underline underline-offset-2">Polymarket ↗</a>
+                        {/* 💡 已移除原先的 Polymarket 超連結，改為純 Manifold */}
+                        <a href="https://manifold.markets" target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-amber-500 transition-colors underline underline-offset-2">Manifold Markets ↗</a>
                       </div>
                     </div>
                   </div>
@@ -644,7 +639,8 @@ export default function RadarPage() {
                   className="w-full bg-black border border-zinc-800 rounded px-3 py-2 text-zinc-300 focus:outline-none focus:border-amber-500 transition-colors"
                 >
                   <option value="BINANCE">Binance</option>
-                  <option value="POLYMARKET">Polymarket</option>
+                  {/* 💡 已移除下拉選單中的 POLYMARKET 選項 */}
+                  <option value="MANIFOLD">Manifold Markets</option>
                   <option value="BYBIT">Bybit</option>
                   <option value="IB">Interactive Brokers</option>
                 </select>
@@ -697,7 +693,7 @@ export default function RadarPage() {
             </div>
 
             <button 
-              onClick={() => alert("🔗 [模擬跳轉] 註冊完成後，請在上方表格輸入您的 UID 進行綁定，系統驗證通過後將自動為您開啟全部權限。")}
+              onClick={() => alert("🔗 [網關跳轉] 註冊完成後，請在上方表格輸入您的合作渠道 UID 進行綁定，系統驗證通過後將自動為您開啟高級雷達權限。")}
               className="w-full py-2 bg-zinc-100 text-black rounded font-mono text-xs font-bold hover:bg-white transition-colors shadow-md"
             >
               Get Referral Links
@@ -706,7 +702,6 @@ export default function RadarPage() {
         </aside>
       </main>
 
-      {/* 💡 【關鍵改動】加入動態 key 控制。當切換不同策略或關閉時，React 會直接銷毀並重新生成 Modal 實例 */}
       <StrategyModal 
         key={isModalOpen && selectedStrategy ? ('manifold_odds' in selectedStrategy ? selectedStrategy.id : `hist-${selectedStrategy.id}`) : 'closed'}
         isOpen={isModalOpen}
