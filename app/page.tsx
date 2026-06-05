@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 
 // =========================================================
-// 🎛️ 環境配置區（請根據你的真實後端網址進行修改）
+// 🎛️ 環境配置區
 // =========================================================
 const BACKEND_HTTP_URL = "https://alphaforge-backend-dtqv.onrender.com"; 
 const BACKEND_WS_URL = "wss://alphaforge-backend-dtqv.onrender.com/ws/radar";
@@ -58,34 +58,41 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
     setExecuteStatus({ type: 'idle', msg: 'Forwarding vectors to gateway...' });
 
     try {
+      // 1. 建立符合後端 Pydantic (VectorExecutePayload) 預期的資料結構
       const payload = {
         strategy_id: strategy.id,
-        anomaly_type: strategy.anomaly_type,
-        action: isRetailOverpriced ? "SHORT_RETAIL" : "LONG_RETAIL",
-        metrics: {
-          deribit_implied: strategy.deribit_implied_odds,
-          manifold_odds: strategy.manifold_odds,
-          spread_abs: parseFloat(spreadAbs),
-          net_edge: parseFloat(netArbitrageEdge)
-        },
-        timestamp: new Date().toISOString()
+        title: strategy.title,
+        net_arbitrage_edge: parseFloat(netArbitrageEdge),
+        route_details: [
+          isRetailOverpriced ? "SHORT Polymarket/Manifold (NO)" : "LONG Polymarket/Manifold (YES)",
+          isRetailOverpriced ? "LONG Deribit/Binance (Delta Hedge)" : "SHORT Deribit/Binance (Delta Hedge)"
+        ]
       };
 
-      const response = await fetch(`${BACKEND_HTTP_URL}/api/v1/execute`, {
+      // 2. 將 api_key 作為 Query Parameter 帶在 URL 後方，符合後端 Depends 驗證邏輯
+      const clientApiKey = apiKey.trim() || "PUBLIC_GUEST";
+      const targetUrl = `${BACKEND_HTTP_URL}/api/v1/vector/execute?api_key=${encodeURIComponent(clientApiKey)}`;
+
+      const response = await fetch(targetUrl, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey.trim() || "PUBLIC_GUEST"}`
+          "Content-Type": "application/json"
         },
         body: JSON.stringify(payload)
       });
 
       const data = await response.json();
 
-      if (response.ok && data.status !== "error") {
-        setExecuteStatus({ type: 'success', msg: `✅ 執行成功: ${data.message || 'Vector bound to gateway'}` });
+      if (response.ok && data.status === "success") {
+        setExecuteStatus({ 
+          type: 'success', 
+          msg: `✅ 執行成功: 已鎖定 +${data.execution_summary.net_arbitrage_edge_locked}% 價差利潤！` 
+        });
       } else {
-        setExecuteStatus({ type: 'error', msg: `❌ 路由拒絕: ${data.detail || 'Execution rejected'}` });
+        setExecuteStatus({ 
+          type: 'error', 
+          msg: `❌ 路由拒絕: ${data.detail || 'Execution rejected by routing matrix.'}` 
+        });
       }
     } catch (err) {
       console.error(err);
@@ -166,7 +173,7 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
                   )}
                 </p>
                 <span className="text-xs text-zinc-500 font-mono block mt-1">
-                  Target: Lock in the institutional spread mathematical mathematical certainty.
+                  Target: Lock in the institutional spread mathematical certainty.
                 </span>
               </div>
             </div>
@@ -254,7 +261,7 @@ export default function RadarPage() {
       setStreamStatus("CONNECTING");
       const clientApiKey = apiKey.trim() || "PUBLIC_GUEST";
       
-      const targetUrl = `${BACKEND_WS_URL}?category=${currentCategory}&api_key=${clientApiKey}`;
+      const targetUrl = `${BACKEND_WS_URL}?category=${currentCategory}&api_key=${encodeURIComponent(clientApiKey)}`;
       const ws = new WebSocket(targetUrl);
       wsRef.current = ws;
 
@@ -482,7 +489,6 @@ export default function RadarPage() {
               🔗 Brokerage Channel Binding
             </h3>
             <form onSubmit={handleAccountBinding} className="space-y-4 text-xs font-mono">
-              {/* Optional API Key Input (Can be hidden later if 100% relying on UID) */}
               <div>
                 <label className="text-[10px] text-zinc-500 block mb-1">Access API Key (Optional)</label>
                 <input 
@@ -529,7 +535,6 @@ export default function RadarPage() {
             </form>
           </div>
 
-          {/* ✨ 全新改版：Affiliate 生態系解鎖區塊 */}
           <div className="bg-[#0c0c0e] border border-amber-900/40 rounded-xl p-5 relative overflow-hidden group shadow-[0_0_15px_rgba(245,158,11,0.05)]">
             <div className="absolute top-0 right-0 bg-amber-500 text-black text-[9px] font-bold px-2 py-0.5 rounded-bl font-mono">100% FREE</div>
             
