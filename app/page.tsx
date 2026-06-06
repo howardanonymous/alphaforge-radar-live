@@ -14,6 +14,7 @@ const BACKEND_WS_URL = "wss://alphaforge-backend-dtqv.onrender.com/ws/radar";
 interface RadarItem {
   id: string;
   title: string;
+  source_platform: string; // 💡 新增：動態識別來源預測市場
   deribit_implied_odds: number;
   manifold_odds: number;
   deviation_rate: number;
@@ -47,8 +48,17 @@ interface SectorTab {
   icon: string;
 }
 
+// 💡 輔助函數：動態取得預測市場平台資訊
+const getPlatformInfo = (platformKey: string = "MANIFOLD") => {
+  const p = platformKey.toUpperCase();
+  if (p === "KALSHI") return { name: "Kalshi", url: "https://kalshi.com" };
+  if (p === "METACULUS") return { name: "Metaculus", url: "https://www.metaculus.com" };
+  if (p === "BINANCE") return { name: "Binance", url: "https://www.binance.com" };
+  return { name: "Manifold Markets", url: "https://manifold.markets" };
+};
+
 // =========================================================
-// 🚀 核心子組件：高階策略分析矩陣彈窗 (純訊號導流版)
+// 🚀 核心子組件：高階策略分析矩陣彈窗 (動態導流版)
 // =========================================================
 interface StrategyModalProps {
   isOpen: boolean;
@@ -64,6 +74,10 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
   const isRadarItem = 'manifold_odds' in strategy;
   const manifoldOdds = isRadarItem ? (strategy as RadarItem).manifold_odds : (strategy as HistoryItem).retail_odds;
   const deribitOdds = isRadarItem ? (strategy as RadarItem).deribit_implied_odds : (strategy as HistoryItem).institutional_odds;
+  
+  // 取得目標平台資訊
+  const platformKey = strategy.source_platform || "MANIFOLD";
+  const { name: platformName, url: platformUrl } = getPlatformInfo(platformKey);
 
   const isRetailOverpriced = manifoldOdds > deribitOdds;
   const spreadAbs = Math.abs(manifoldOdds - deribitOdds).toFixed(2);
@@ -73,12 +87,11 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
   const netArbitrageEdge = (parseFloat(spreadAbs) - (estSlippage + estFee)).toFixed(2);
 
   const handleCopyStrategy = () => {
-    // 💡 複製文字已移除 Polymarket 標記
     const text = `【AlphaForge 結構性套利策略】\n標的: ${strategy.title}\n預估淨利潤: +${netArbitrageEdge}%\n步驟 1: ${
-      isRetailOverpriced ? "SHORT/NO @ Manifold Markets" : "LONG/YES @ Manifold Markets"
-    }\n步驟 2: ${
-      isRetailOverpriced ? "LONG/Delta Hedge @ Deribit/Binance" : "SHORT/Delta Hedge @ Deribit/Binance"
-    }`;
+      isRetailOverpriced ? "SHORT/NO" : "LONG/YES"
+    } @ ${platformName}\n步驟 2: ${
+      isRetailOverpriced ? "LONG/Delta Hedge" : "SHORT/Delta Hedge"
+    } @ Deribit/Binance`;
     
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -134,9 +147,9 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
               <div>
                 <p className="text-sm text-zinc-300">
                   {isRetailOverpriced ? (
-                    <>在 <span className="text-amber-400 font-semibold">Manifold Markets</span> 建立 <span className="text-red-500 font-semibold">Short / NO</span> 倉位</>
+                    <>在 <span className="text-amber-400 font-semibold">{platformName}</span> 建立 <span className="text-red-500 font-semibold">Short / NO</span> 倉位</>
                   ) : (
-                    <>在 <span className="text-amber-400 font-semibold">Manifold Markets</span> 買入 <span className="text-emerald-400 font-semibold">Long / YES</span> 倉位</>
+                    <>在 <span className="text-amber-400 font-semibold">{platformName}</span> 買入 <span className="text-emerald-400 font-semibold">Long / YES</span> 倉位</>
                   )}
                 </p>
                 <span className="text-xs text-zinc-500 font-mono block mt-1">
@@ -185,14 +198,13 @@ const StrategyModal: React.FC<StrategyModalProps> = ({ isOpen, onClose, strategy
           >
             {copied ? "📋 COPIED STRATEGY!" : "COPY STRATEGY VECTOR"}
           </button>
-          {/* 💡 按鈕跳轉目標已更改為 Manifold */}
           <a 
-            href="https://manifold.markets" 
+            href={platformUrl} 
             target="_blank" 
             rel="noreferrer"
             className="w-full py-2.5 text-xs font-semibold bg-amber-500 text-black rounded hover:bg-amber-400 shadow-lg shadow-amber-950/20 transition-all font-mono text-center block"
           >
-            OPEN VENUE TO ARBITRAGE ↗
+            OPEN VENUE ({platformName}) ↗
           </a>
         </div>
       </div>
@@ -216,7 +228,7 @@ export default function RadarPage() {
   const [streamStatus, setStreamStatus] = useState<"ACTIVE" | "DISCONNECTED" | "CONNECTING">("CONNECTING");
   
   const [apiKey, setApiKey] = useState<string>("");
-  const [bindVenue, setBindVenue] = useState<string>("MANIFOLD"); // 💡 預設初始值改為 MANIFOLD
+  const [bindVenue, setBindVenue] = useState<string>("KALSHI"); 
   const [accountUid, setAccountUid] = useState<string>("");
   const [bindLoading, setBindLoading] = useState<boolean>(false);
 
@@ -432,10 +444,10 @@ export default function RadarPage() {
           </div>
         )}
         <div className="px-2 py-0.5 rounded bg-zinc-900/60 border border-zinc-800/80 text-zinc-400">
-          Core Engine: <span className="text-zinc-300">Cython_v10_Matrix</span>
+          Core Engine: <span className="text-zinc-300">Cython_v11_Matrix</span>
         </div>
         <div className="px-2 py-0.5 rounded bg-zinc-900/60 border border-zinc-800/80 text-amber-500/90 font-medium">
-          Strategy Mode: <span className="underline decoration-dotted underline-offset-2">Structural Arbitrage</span>
+          Strategy Mode: <span className="underline decoration-dotted underline-offset-2">Cross-Venue Arbitrage</span>
         </div>
       </section>
 
@@ -454,6 +466,8 @@ export default function RadarPage() {
             ) : (
               radarData.map((item) => {
                 const isSpreadHigh = item.deviation_rate > 10;
+                const { name: pName, url: pUrl } = getPlatformInfo(item.source_platform);
+
                 return (
                   <div 
                     key={item.id}
@@ -474,7 +488,7 @@ export default function RadarPage() {
                         <span className="text-zinc-300 font-medium">{item.deribit_implied_odds}%</span>
                       </div>
                       <div>
-                        <span className="text-[10px] text-zinc-500 block mb-0.5">👥 Retail Odds (Manifold)</span>
+                        <span className="text-[10px] text-zinc-500 block mb-0.5">👥 Retail Odds ({pName})</span>
                         <span className="text-zinc-300 font-medium">{item.manifold_odds}%</span>
                       </div>
                       <div className="col-span-2 sm:col-span-1 bg-zinc-950/80 px-3 py-1.5 border border-zinc-900 rounded flex justify-between sm:block">
@@ -490,8 +504,7 @@ export default function RadarPage() {
                         Analyze Strategy
                       </button>
                       <div className="flex gap-3 text-[10px] text-zinc-500 font-mono">
-                        {/* 💡 已移除原先的 Polymarket 超連結，改為純 Manifold */}
-                        <a href="https://manifold.markets" target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-amber-500 transition-colors underline underline-offset-2">Manifold Markets ↗</a>
+                        <a href={pUrl} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-amber-500 transition-colors underline underline-offset-2">{pName} ↗</a>
                       </div>
                     </div>
                   </div>
@@ -513,6 +526,7 @@ export default function RadarPage() {
               historyData.map((rec) => {
                 const pnl = rec.performance.simulated_pnl;
                 const bs = rec.performance.brier_score;
+                const { name: pName } = getPlatformInfo(rec.source_platform);
                 
                 return (
                   <div 
@@ -539,7 +553,7 @@ export default function RadarPage() {
 
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-zinc-950/50 p-3 rounded-lg border border-zinc-900 mb-4 text-[11px]">
                       <div>
-                        <span className="text-zinc-500 block text-[10px]">散戶機率</span>
+                        <span className="text-zinc-500 block text-[10px]">散戶機率 ({pName})</span>
                         <span className="text-zinc-300">{rec.retail_odds}%</span>
                       </div>
                       <div>
@@ -638,9 +652,10 @@ export default function RadarPage() {
                   onChange={(e) => setBindVenue(e.target.value)}
                   className="w-full bg-black border border-zinc-800 rounded px-3 py-2 text-zinc-300 focus:outline-none focus:border-amber-500 transition-colors"
                 >
-                  <option value="BINANCE">Binance</option>
-                  {/* 💡 已移除下拉選單中的 POLYMARKET 選項 */}
+                  <option value="KALSHI">Kalshi</option>
+                  <option value="METACULUS">Metaculus</option>
                   <option value="MANIFOLD">Manifold Markets</option>
+                  <option value="BINANCE">Binance</option>
                   <option value="BYBIT">Bybit</option>
                   <option value="IB">Interactive Brokers</option>
                 </select>
@@ -683,6 +698,12 @@ export default function RadarPage() {
                   <span className="text-yellow-500">🟨</span> Binance
                 </span>
                 <span className="text-[9px] text-emerald-400 font-mono border border-emerald-900/50 bg-emerald-950/30 px-1.5 py-0.5 rounded">20% Fee Kickback</span>
+              </div>
+              <div className="bg-zinc-950/60 border border-zinc-800 rounded p-2.5 flex justify-between items-center">
+                <span className="text-[10px] font-mono text-zinc-300 flex items-center gap-1.5">
+                  <span className="text-blue-500">🟦</span> Kalshi
+                </span>
+                <span className="text-[9px] text-emerald-400 font-mono border border-emerald-900/50 bg-emerald-950/30 px-1.5 py-0.5 rounded">Priority Access</span>
               </div>
               <div className="bg-zinc-950/60 border border-zinc-800 rounded p-2.5 flex justify-between items-center">
                 <span className="text-[10px] font-mono text-zinc-300 flex items-center gap-1.5">
