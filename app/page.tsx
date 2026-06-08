@@ -1,231 +1,106 @@
 "use client";
+import React, { useEffect, useState, useCallback } from "react";
 
-import React, { useEffect, useRef, useState } from "react";
-
-// =========================================================
-// ⚙️ CONFIG
-// =========================================================
+// 你的 Render 後端 URL
 const WS_URL = "wss://alphaforge-backend-dtqv.onrender.com/ws/radar";
 const HTTP_URL = "https://alphaforge-backend-dtqv.onrender.com";
 
-// =========================================================
-// 📊 TYPES
-// =========================================================
 interface Signal {
-  id: string;
-  title: string;
+  id: string; 
+  title: string; 
   source_platform: string;
-
-  deribit_implied_odds: number;
-  manifold_odds: number;
-  deviation_rate: number;
-
-  signal_score: number;
+  manifold_odds: number; 
+  kalshi_odds: number; 
+  deviation_rate: number; 
+  signal_score: number; 
   anomaly_type: string;
 }
 
-// =========================================================
-// 🧠 SCORE COLOR ENGINE
-// =========================================================
-const getScoreColor = (score: number) => {
-  if (score >= 80) return "text-red-400 border-red-500/40 bg-red-950/20";
-  if (score >= 60) return "text-amber-400 border-amber-500/40 bg-amber-950/20";
-  return "text-emerald-400 border-emerald-500/20 bg-emerald-950/10";
-};
-
-// =========================================================
-// 📡 MAIN UI
-// =========================================================
 export default function SignalUIV2() {
   const [signals, setSignals] = useState<Signal[]>([]);
-  const [category, setCategory] = useState("CRYPTO");
-  const [status, setStatus] = useState("CONNECTING");
   const [selected, setSelected] = useState<Signal | null>(null);
 
-  const wsRef = useRef<WebSocket | null>(null);
-
-  // =========================================================
-  // 🔌 WS CONNECT
-  // =========================================================
   useEffect(() => {
-    if (wsRef.current) wsRef.current.close();
-
-    const ws = new WebSocket(`${WS_URL}?category=${category}`);
-    wsRef.current = ws;
-
-    ws.onopen = () => setStatus("LIVE");
-
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        setSignals(msg.signals || []);
-      } catch (e) {
-        console.error(e);
-      }
+    const ws = new WebSocket(WS_URL);
+    ws.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      if (data.signals) setSignals(data.signals);
     };
-
-    ws.onclose = () => setStatus("DISCONNECTED");
-
     return () => ws.close();
-  }, [category]);
+  }, []);
 
-  // =========================================================
-  // 📊 RENDER
-  // =========================================================
+  const executeArbitrage = useCallback(async (s: Signal) => {
+    const res = await fetch(`${HTTP_URL}/derived/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ signal: s })
+    });
+    if (res.ok) {
+      alert(`Arbitrage Vector Executed: ${s.title}`);
+    }
+  }, []);
+
   return (
-    <div className="min-h-screen bg-black text-zinc-200 p-6">
-
-      {/* =====================================================
-          HEADER
-      ===================================================== */}
-      <div className="flex justify-between items-center mb-6 border-b border-zinc-800 pb-4">
-
+    <main className="min-h-screen bg-black text-zinc-200 p-8 font-mono">
+      <header className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-4">
         <div>
-          <h1 className="text-xl font-bold tracking-tight">
-            SIGNAL INTELLIGENCE <span className="text-amber-400">v2</span>
-          </h1>
-          <p className="text-xs text-zinc-500">
-            Cross-Venue Pricing Inefficiency Detection Layer
-          </p>
+          <h1 className="text-3xl font-bold tracking-tighter">ALPHA_FORGE <span className="text-amber-500">v4.3</span></h1>
+          <p className="text-zinc-500 text-xs">Cross-Platform Arbitrage Engine (Kalshi x Manifold)</p>
         </div>
+      </header>
 
-        <div className="text-xs font-mono">
-          STATUS:{" "}
-          <span className={status === "LIVE" ? "text-green-400" : "text-red-400"}>
-            {status}
-          </span>
-        </div>
-      </div>
-
-      {/* =====================================================
-          CATEGORY SWITCH
-      ===================================================== */}
-      <div className="flex gap-2 mb-6">
-        {["CRYPTO", "STOCKS", "WEATHER", "POLITICS"].map((c) => (
-          <button
-            key={c}
-            onClick={() => setCategory(c)}
-            className={`px-3 py-1 text-xs border rounded ${
-              category === c
-                ? "bg-amber-500 text-black border-amber-400"
-                : "border-zinc-700 text-zinc-400"
-            }`}
-          >
-            {c}
-          </button>
-        ))}
-      </div>
-
-      {/* =====================================================
-          MAIN GRID
-      ===================================================== */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-        {/* ===================================================
-            SIGNAL LIST
-        =================================================== */}
-        <div className="lg:col-span-2 space-y-3">
-
-          {signals.length === 0 && (
-            <div className="text-xs text-zinc-500 border border-zinc-800 p-6 rounded">
-              Waiting for signal stream...
-            </div>
-          )}
-
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* 信號列表 */}
+        <div className="lg:col-span-2 space-y-4">
           {signals.map((s) => (
-            <div
-              key={s.id}
-              onClick={() => setSelected(s)}
-              className="cursor-pointer border border-zinc-800 rounded p-4 hover:border-amber-500/50 transition"
+            <div 
+              key={s.id} 
+              onClick={() => setSelected(s)} 
+              className={`border p-5 cursor-pointer transition ${
+                s.deviation_rate > 5 
+                ? "border-amber-500 bg-amber-500/5" 
+                : "border-zinc-800 hover:border-zinc-600"
+              }`}
             >
-
-              {/* TOP */}
-              <div className="flex justify-between items-start mb-2">
-                <span className="text-[10px] text-zinc-500 font-mono">
-                  {s.id}
-                </span>
-
-                <span className={`text-[10px] px-2 py-0.5 border rounded font-mono ${getScoreColor(s.signal_score)}`}>
-                  SCORE {s.signal_score}
+              <div className="flex justify-between text-xs mb-2">
+                <span className="text-zinc-500">{s.id}</span>
+                <span className={s.deviation_rate > 5 ? "text-amber-400 font-bold" : "text-zinc-500"}>
+                  DEV: {s.deviation_rate}%
                 </span>
               </div>
-
-              {/* TITLE */}
-              <div className="text-sm font-semibold mb-3">
-                {s.title}
-              </div>
-
-              {/* METRICS */}
-              <div className="grid grid-cols-3 text-xs text-zinc-400 font-mono">
-                <div>
-                  Retail<br />
-                  <span className="text-zinc-200">{s.manifold_odds}%</span>
-                </div>
-
-                <div>
-                  Institutional<br />
-                  <span className="text-zinc-200">{s.deribit_implied_odds}%</span>
-                </div>
-
-                <div>
-                  Spread<br />
-                  <span className="text-amber-400">{s.deviation_rate}%</span>
-                </div>
-              </div>
-
-              <div className="mt-3 text-[10px] text-zinc-500">
-                {s.anomaly_type}
+              <div className="font-bold text-lg mb-4">{s.title}</div>
+              <div className="flex gap-8 text-sm">
+                <div>Manifold: <span className="text-white">{s.manifold_odds}%</span></div>
+                <div>Kalshi: <span className="text-white">{s.kalshi_odds}%</span></div>
               </div>
             </div>
           ))}
         </div>
 
-        {/* ===================================================
-            DETAIL PANEL
-        =================================================== */}
-        <div className="border border-zinc-800 rounded p-4 h-fit sticky top-4">
-
-          {!selected ? (
-            <div className="text-xs text-zinc-500">
-              Select a signal to analyze execution strategy.
-            </div>
-          ) : (
+        {/* 執行面板 */}
+        <div className="border border-zinc-800 p-6 h-fit sticky top-8 bg-zinc-950">
+          {selected ? (
             <>
-              <div className="text-[10px] text-zinc-500 font-mono mb-2">
-                {selected.id}
+              <h3 className="font-bold mb-2 text-amber-500 uppercase tracking-widest">{selected.anomaly_type}</h3>
+              <p className="text-sm mb-6 text-zinc-400">{selected.title}</p>
+              <div className="bg-black p-4 border border-zinc-800 mb-6">
+                <div className="text-xs text-zinc-500 mb-1">ARBITRAGE SPREAD</div>
+                <div className="text-3xl font-bold">{selected.deviation_rate}%</div>
               </div>
-
-              <div className="text-sm font-bold mb-4">
-                {selected.title}
-              </div>
-
-              <div className={`p-3 border rounded mb-4 ${getScoreColor(selected.signal_score)}`}>
-                SIGNAL SCORE: {selected.signal_score}
-              </div>
-
-              <div className="text-xs font-mono space-y-2">
-
-                <div>
-                  Retail: {selected.manifold_odds}%
-                </div>
-
-                <div>
-                  Institutional: {selected.deribit_implied_odds}%
-                </div>
-
-                <div>
-                  Spread: {selected.deviation_rate}%
-                </div>
-
-              </div>
-
-              <button className="mt-4 w-full bg-amber-500 text-black text-xs font-bold py-2 rounded">
-                EXECUTION VECTOR
+              <button 
+                onClick={() => executeArbitrage(selected)} 
+                className="w-full bg-amber-500 text-black py-3 font-bold text-sm uppercase hover:bg-amber-400 transition"
+              >
+                Execute Arbitrage
               </button>
             </>
+          ) : (
+            <div className="text-zinc-600 text-center py-12 border border-dashed border-zinc-800">
+              Select an arbitrage signal to analyze.
+            </div>
           )}
         </div>
       </div>
-    </div>
+    </main>
   );
 }
