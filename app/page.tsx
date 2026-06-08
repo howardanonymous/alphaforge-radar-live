@@ -5,10 +5,10 @@ import React, { useState, useEffect, useRef, FormEvent } from 'react';
 // =========================================================
 // 🌐 環境變數配置 (建議在實際生產環境改用 process.env.NEXT_PUBLIC_...)
 // =========================================================
-const BACKEND_HOST = "localhost:8000";
-const HTTP_BASE = `http://${BACKEND_HOST}`;
-const WS_BASE = `ws://${BACKEND_HOST}`;
-
+// 💡 將原本的 localhost:8000 替換成你的 Render 雲端網址（去掉開頭的 https://）
+const BACKEND_HOST = "alphaforge-backend-dtqv.onrender.com";
+const HTTP_BASE = `https://${BACKEND_HOST}`; // 雲端環境必須使用 https
+const WS_BASE = `wss://${BACKEND_HOST}`;   // 雲端環境必須使用 wss
 // =========================================================
 // 📊 TypeScript 介面定義 (強型別防禦)
 // =========================================================
