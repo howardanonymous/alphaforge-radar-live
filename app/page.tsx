@@ -1,69 +1,107 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { Signal, Metrics } from "../shared/schemas";
 
-const WS_URL = "wss://alphaforge-backend-dtqv.onrender.com/ws/radar";
+// =========================================================
+// TYPES (v4.1 contract aligned)
+// =========================================================
+type Signal = {
+  id: string;
+  title: string;
+  source: string;
 
+  retail: number;
+  institutional: number;
+  deviation: number;
+
+  signal_tier: "INSTITUTIONAL_GRADE" | "PRO_TRADER_GRADE" | "RETAIL_NOISE";
+  liquidity_score: number;
+  tradable: boolean;
+
+  timestamp: number;
+};
+
+type Stream = {
+  type: string;
+  signals: Signal[];
+};
+
+// =========================================================
+// CONFIG
+// =========================================================
+const WS_URL = "ws://localhost:8000/ws/radar";
+const API_URL = "http://localhost:8000/api/market/opportunities";
+
+// =========================================================
+// PAGE
+// =========================================================
 export default function Page() {
   const [signals, setSignals] = useState<Signal[]>([]);
-  const [metrics, setMetrics] = useState<Metrics | null>(null);
 
+  // =========================================================
+  // WS STREAM
+  // =========================================================
   useEffect(() => {
     const ws = new WebSocket(WS_URL);
 
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      setSignals(msg.data);
+    ws.onmessage = (msg) => {
+      const data: Stream = JSON.parse(msg.data);
+      setSignals(data.signals);
     };
 
     return () => ws.close();
   }, []);
 
-  useEffect(() => {
-    fetch("https://alphaforge-backend-dtqv.onrender.com/api/metrics")
-      .then((r) => r.json())
-      .then((data: Metrics) => setMetrics(data));
-  }, [signals]);
+  // =========================================================
+  // LOAD OPPORTUNITIES (market layer)
+  // =========================================================
+  const loadOpportunities = async () => {
+    const res = await fetch(API_URL);
+    const json = await res.json();
+    setSignals(json.opportunities);
+  };
 
   return (
     <div className="min-h-screen bg-black text-white p-6">
 
-      <h1 className="text-xl font-bold mb-4">
-        AlphaForge Intelligence Layer v4.5
-      </h1>
+      <div className="flex justify-between mb-4">
+        <h1 className="font-bold">AlphaForge v4.1 Marketplace</h1>
 
-      {metrics && (
-        <div className="text-xs text-gray-400 mb-4">
-          Avg Spread: {metrics.avg_spread.toFixed(2)}% ·
-          Avg Confidence: {metrics.avg_confidence.toFixed(2)} ·
-          Signals: {metrics.total_signals}
-        </div>
-      )}
+        <button
+          onClick={loadOpportunities}
+          className="px-3 py-1 border text-xs"
+        >
+          OPPORTUNITIES
+        </button>
+      </div>
 
-      <div className="space-y-4">
+      <div className="grid gap-3">
         {signals.map((s) => (
-          <div key={s.id} className="border border-gray-800 p-4">
+          <div key={s.id} className="border border-zinc-700 p-3 rounded">
 
             <div className="flex justify-between">
-              <div className="text-sm font-semibold">{s.title}</div>
-              <div className="text-xs text-gray-400">
-                {s.anomaly_type}
-              </div>
+              <div className="font-semibold text-sm">{s.title}</div>
+              <div className="text-xs opacity-60">{s.source}</div>
             </div>
 
-            <div className="text-xs mt-2 grid grid-cols-3 gap-2 text-gray-300">
-              <div>Retail: {s.retail_odds.toFixed(1)}%</div>
-              <div>Inst: {s.institutional_odds.toFixed(1)}%</div>
-              <div>Spread: {s.deviation_rate.toFixed(2)}%</div>
+            <div className="text-xs mt-2">
+              Retail: {s.retail}% | Inst: {s.institutional}%
             </div>
 
-            <div className="text-xs mt-2 text-green-400">
-              Confidence: {s.confidence.toFixed(2)}
+            <div className="text-xs mt-1">
+              Deviation: {s.deviation}
             </div>
 
-            <div className="text-xs mt-2 text-gray-400">
-              {s.explanation}
+            <div className="text-xs mt-2">
+              Tier: {s.signal_tier}
+            </div>
+
+            <div className="text-xs">
+              Liquidity: {s.liquidity_score}
+            </div>
+
+            <div className="text-xs">
+              Tradable: {s.tradable ? "YES" : "NO"}
             </div>
 
           </div>
