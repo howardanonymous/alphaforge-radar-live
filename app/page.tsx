@@ -1,105 +1,201 @@
 "use client";
-import React, { useEffect, useState, useCallback } from "react";
 
-// 你的 Render 後端 URL
-const WS_URL = "wss://alphaforge-backend-dtqv.onrender.com/ws/radar";
-const HTTP_URL = "https://alphaforge-backend-dtqv.onrender.com";
+import { useEffect, useRef, useState } from "react";
 
-interface Signal {
-  id: string; 
-  title: string; 
-  source_platform: string;
-  manifold_odds: number; 
-  kalshi_odds: number; 
-  deviation_rate: number; 
-  signal_score: number; 
-  anomaly_type: string;
-}
+const API_BASE = "https://alphaforge-backend-dtqv.onrender.com";
 
-export default function SignalUIV2() {
-  const [signals, setSignals] = useState<Signal[]>([]);
-  const [selected, setSelected] = useState<Signal | null>(null);
+// =========================
+// Types
+// =========================
+type Signal = {
+  id?: string;
+  symbol?: string;
+  price?: number;
+  deviation?: number;
+  timestamp?: string;
+};
 
-  useEffect(() => {
-    const ws = new WebSocket(WS_URL);
-    ws.onmessage = (e) => {
-      const data = JSON.parse(e.data);
-      if (data.signals) setSignals(data.signals);
-    };
-    return () => ws.close();
-  }, []);
+type Status = "CONNECTING" | "LIVE" | "DEGRADED" | "OFFLINE";
 
-  const executeArbitrage = useCallback(async (s: Signal) => {
-    const res = await fetch(`${HTTP_URL}/derived/create`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ signal: s })
-    });
-    if (res.ok) {
-      alert(`Arbitrage Vector Executed: ${s.title}`);
+// =========================
+// Utils
+// =========================
+const sleep = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+// =========================
+// Component
+// =========================
+export default function Page() {
+  const [signals, setSignals] = useState<Record<string, Signal>>({});
+  const [status, setStatus] = useState<Status>("CONNECTING");
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const retryRef = useRef(0);
+  const heartbeatRef = useRef<NodeJS.Timeout | null>(null);
+
+  // =========================
+  // REST fallback
+  // =========================
+  const fetchSignals = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/signals`);
+      const data: Signal[] = await res.json();
+
+      const mapped: Record<string, Signal> = {};
+
+      data.forEach((s) => {
+        const key = s.id || s.symbol || Math.random().toString();
+        mapped[key] = s;
+      });
+
+      setSignals(mapped);
+      setStatus("DEGRADED");
+    } catch {
+      setStatus("OFFLINE");
     }
+  };
+
+  // =========================
+  // WebSocket connect (robust)
+  // =========================
+  const connectWS = async () => {
+    const wsUrl = API_BASE.replace("https", "wss") + "/ws/signals";
+
+    setStatus("CONNECTING");
+
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setStatus("LIVE");
+      retryRef.current = 0;
+
+      // heartbeat
+      heartbeatRef.current = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "ping" }));
+        }
+      }, 15000);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data: Signal = JSON.parse(event.data);
+
+        const key = data.id || data.symbol;
+        if (!key) return;
+
+        setSignals((prev) => {
+          const prevSignal = prev[key];
+
+          return {
+            ...prev,
+            [key]: {
+              ...prevSignal,
+              ...data,
+            },
+          };
+        });
+      } catch (e) {
+        console.error("WS parse error", e);
+      }
+    };
+
+    ws.onerror = async () => {
+      setStatus("DEGRADED");
+    };
+
+    ws.onclose = async () => {
+      setStatus("DEGRADED");
+
+      if (heartbeatRef.current) {
+        clearInterval(heartbeatRef.current);
+      }
+
+      // exponential backoff reconnect
+      retryRef.current += 1;
+      const delay = Math.min(1000 * retryRef.current * 2, 15000);
+
+      await sleep(delay);
+
+      if (retryRef.current < 10) {
+        connectWS();
+      } else {
+        await fetchSignals();
+      }
+    };
+  };
+
+  // =========================
+  // init
+  // =========================
+  useEffect(() => {
+    connectWS();
+
+    return () => {
+      wsRef.current?.close();
+      if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+    };
   }, []);
+
+  // =========================
+  // UI
+  // =========================
+  const signalList = Object.values(signals);
 
   return (
-    <main className="min-h-screen bg-black text-zinc-200 p-8 font-mono">
-      <header className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tighter">ALPHA_FORGE <span className="text-amber-500">v4.3</span></h1>
-          <p className="text-zinc-500 text-xs">Cross-Platform Arbitrage Engine (Kalshi x Manifold)</p>
-        </div>
-      </header>
+    <main style={{ padding: 20, fontFamily: "Arial" }}>
+      <h1>AlphaForge Signal Dashboard v2</h1>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* 信號列表 */}
-        <div className="lg:col-span-2 space-y-4">
-          {signals.map((s) => (
-            <div 
-              key={s.id} 
-              onClick={() => setSelected(s)} 
-              className={`border p-5 cursor-pointer transition ${
-                s.deviation_rate > 5 
-                ? "border-amber-500 bg-amber-500/5" 
-                : "border-zinc-800 hover:border-zinc-600"
-              }`}
-            >
-              <div className="flex justify-between text-xs mb-2">
-                <span className="text-zinc-500">{s.id}</span>
-                <span className={s.deviation_rate > 5 ? "text-amber-400 font-bold" : "text-zinc-500"}>
-                  DEV: {s.deviation_rate}%
-                </span>
-              </div>
-              <div className="font-bold text-lg mb-4">{s.title}</div>
-              <div className="flex gap-8 text-sm">
-                <div>Manifold: <span className="text-white">{s.manifold_odds}%</span></div>
-                <div>Kalshi: <span className="text-white">{s.kalshi_odds}%</span></div>
-              </div>
-            </div>
-          ))}
-        </div>
+      {/* Status Bar */}
+      <div style={{ marginBottom: 10 }}>
+        Status:{" "}
+        <b
+          style={{
+            color:
+              status === "LIVE"
+                ? "green"
+                : status === "CONNECTING"
+                ? "orange"
+                : "red",
+          }}
+        >
+          {status}
+        </b>
+      </div>
 
-        {/* 執行面板 */}
-        <div className="border border-zinc-800 p-6 h-fit sticky top-8 bg-zinc-950">
-          {selected ? (
-            <>
-              <h3 className="font-bold mb-2 text-amber-500 uppercase tracking-widest">{selected.anomaly_type}</h3>
-              <p className="text-sm mb-6 text-zinc-400">{selected.title}</p>
-              <div className="bg-black p-4 border border-zinc-800 mb-6">
-                <div className="text-xs text-zinc-500 mb-1">ARBITRAGE SPREAD</div>
-                <div className="text-3xl font-bold">{selected.deviation_rate}%</div>
-              </div>
-              <button 
-                onClick={() => executeArbitrage(selected)} 
-                className="w-full bg-amber-500 text-black py-3 font-bold text-sm uppercase hover:bg-amber-400 transition"
-              >
-                Execute Arbitrage
-              </button>
-            </>
-          ) : (
-            <div className="text-zinc-600 text-center py-12 border border-dashed border-zinc-800">
-              Select an arbitrage signal to analyze.
-            </div>
-          )}
-        </div>
+      <button onClick={fetchSignals}>Force REST Sync</button>
+
+      {/* Signals */}
+      <div style={{ marginTop: 20 }}>
+        <h2>Live Signal Stream</h2>
+
+        {signalList.length === 0 ? (
+          <p>No signals</p>
+        ) : (
+          <table border={1} cellPadding={8}>
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Price</th>
+                <th>Deviation</th>
+                <th>Time</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {signalList.map((s, i) => (
+                <tr key={i}>
+                  <td>{s.symbol || "-"}</td>
+                  <td>{s.price ?? "-"}</td>
+                  <td>{s.deviation ?? "-"}</td>
+                  <td>{s.timestamp ?? "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </main>
   );
