@@ -1,101 +1,74 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { Signal, Metrics } from "../shared/schemas";
 
-const API = "https://alphaforge-backend-dtqv.onrender.com";
-
-interface Signal {
-  id: string;
-  title: string;
-  deviation_rate: number;
-  edge_score?: number;
-}
-
-interface Market {
-  market_id: string;
-}
+const WS_URL = "wss://alphaforge-backend-dtqv.onrender.com/ws/radar";
 
 export default function Page() {
   const [signals, setSignals] = useState<Signal[]>([]);
-  const [marketId, setMarketId] = useState<string | null>(null);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
 
   useEffect(() => {
-    fetch(`${API}/api/v1/snapshot?category=CRYPTO`)
-      .then((r) => r.json())
-      .then((d) => setSignals(d.data || []));
+    const ws = new WebSocket(WS_URL);
+
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      setSignals(msg.data);
+    };
+
+    return () => ws.close();
   }, []);
 
-  const createMarket = async (signal: Signal) => {
-    const res = await fetch(`${API}/api/v1/market/create`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(signal),
-    });
-
-    const data: Market = await res.json();
-    setMarketId(data.market_id);
-  };
-
-  const placeOrder = async (side: "LONG" | "SHORT") => {
-    if (!marketId) return;
-
-    await fetch(`${API}/api/v1/order`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        market_id: marketId,
-        side,
-        size: 1,
-        price: 1,
-      }),
-    });
-  };
+  useEffect(() => {
+    fetch("https://alphaforge-backend-dtqv.onrender.com/api/metrics")
+      .then((r) => r.json())
+      .then((data: Metrics) => setMetrics(data));
+  }, [signals]);
 
   return (
     <div className="min-h-screen bg-black text-white p-6">
-      <h1 className="text-lg font-bold mb-4">
-        AlphaForge Exchange v7 (MVP)
+
+      <h1 className="text-xl font-bold mb-4">
+        AlphaForge Intelligence Layer v4.5
       </h1>
 
-      <div className="grid gap-3">
+      {metrics && (
+        <div className="text-xs text-gray-400 mb-4">
+          Avg Spread: {metrics.avg_spread.toFixed(2)}% ·
+          Avg Confidence: {metrics.avg_confidence.toFixed(2)} ·
+          Signals: {metrics.total_signals}
+        </div>
+      )}
+
+      <div className="space-y-4">
         {signals.map((s) => (
-          <div key={s.id} className="border p-3 border-zinc-800">
-            <div className="text-sm">{s.title}</div>
-            <div className="text-xs text-zinc-400">
-              Spread: {s.deviation_rate}
+          <div key={s.id} className="border border-gray-800 p-4">
+
+            <div className="flex justify-between">
+              <div className="text-sm font-semibold">{s.title}</div>
+              <div className="text-xs text-gray-400">
+                {s.anomaly_type}
+              </div>
             </div>
 
-            <button
-              onClick={() => createMarket(s)}
-              className="mt-2 px-3 py-1 text-xs bg-blue-600 text-black"
-            >
-              Create Market
-            </button>
+            <div className="text-xs mt-2 grid grid-cols-3 gap-2 text-gray-300">
+              <div>Retail: {s.retail_odds.toFixed(1)}%</div>
+              <div>Inst: {s.institutional_odds.toFixed(1)}%</div>
+              <div>Spread: {s.deviation_rate.toFixed(2)}%</div>
+            </div>
+
+            <div className="text-xs mt-2 text-green-400">
+              Confidence: {s.confidence.toFixed(2)}
+            </div>
+
+            <div className="text-xs mt-2 text-gray-400">
+              {s.explanation}
+            </div>
+
           </div>
         ))}
       </div>
-
-      {marketId && (
-        <div className="mt-6 border-t border-zinc-800 pt-4">
-          <div className="text-sm">Market: {marketId}</div>
-
-          <div className="flex gap-2 mt-2">
-            <button
-              onClick={() => placeOrder("LONG")}
-              className="px-3 py-1 text-xs bg-green-600 text-black"
-            >
-              LONG
-            </button>
-
-            <button
-              onClick={() => placeOrder("SHORT")}
-              className="px-3 py-1 text-xs bg-red-600 text-black"
-            >
-              SHORT
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
