@@ -8,123 +8,47 @@ import { useEffect, useState } from "react";
 
 const WS_URL =
   "wss://alphaforge-backend-dtqv.onrender.com/ws/radar";
-const API_URL = "https://alphaforge-backend-dtqv.onrender.com";
+
+const API_BASE =
+  "https://alphaforge-backend-dtqv.onrender.com";
 
 // =====================================================
-// TYPES
+// TYPES (INLINE - FIX VERCEL BUILD ISSUE)
 // =====================================================
 
 interface Signal {
   id: string;
   title: string;
-  source_platform: string;
-  deribit_implied_odds: number;
-  manifold_odds: number;
+  source_platform?: string;
+  retail_odds?: number;
+  institutional_odds?: number;
   deviation_rate: number;
-  anomaly_type: string;
+  alpha?: {
+    edge_score: number;
+    confidence: number;
+    exploitability: number;
+    alpha_class: string;
+  };
 }
 
 interface DerivedMarket {
   id: string;
   parent_signal_id: string;
   title: string;
-  description: string;
-  market_type: string;
   entry_spread: number;
+  market_type: string;
   status: string;
-  created_at: number;
-}
-
-interface WsPayload {
-  timestamp: number;
-  category: string;
-  data: Signal[];
 }
 
 // =====================================================
-// METRICS
-// =====================================================
-
-function calculateEdge(s: Signal): number {
-  const spread = Math.abs(
-    s.deribit_implied_odds - s.manifold_odds
-  );
-  return Math.min(100, spread * 5);
-}
-
-// =====================================================
-// PITCH LAYER
-// =====================================================
-
-function PitchHeader() {
-  return (
-    <div className="border border-zinc-800 p-6 rounded mb-6">
-      <h1 className="text-2xl font-bold">
-        AlphaForge
-      </h1>
-
-      <p className="text-zinc-400 mt-2">
-        Cross-Market Intelligence → Synthetic Prediction Market Layer
-      </p>
-
-      <div className="mt-4 text-sm text-zinc-300 leading-6">
-        We detect inefficiencies across prediction markets
-        and convert them into{" "}
-        <span className="text-white font-semibold">
-          tradable derived markets
-        </span>.
-      </div>
-
-      <div className="mt-3 text-xs text-zinc-500">
-        Thesis: fragmented prediction markets → structural alpha via cross-market disagreement.
-      </div>
-    </div>
-  );
-}
-
-function WhyNow() {
-  return (
-    <div className="border border-zinc-800 p-6 rounded mb-6">
-      <h2 className="text-lg font-semibold mb-3">
-        Why now
-      </h2>
-
-      <ul className="text-sm text-zinc-300 space-y-2">
-        <li>• Prediction markets are fragmented (no unified pricing layer)</li>
-        <li>• Institutional vs retail probability divergence is increasing</li>
-        <li>• No infrastructure exists to turn mispricing into new markets</li>
-        <li>• Market inefficiency is now observable in real-time</li>
-      </ul>
-    </div>
-  );
-}
-
-function BusinessModel() {
-  return (
-    <div className="border border-zinc-800 p-6 rounded mb-6">
-      <h2 className="text-lg font-semibold mb-3">
-        Business model
-      </h2>
-
-      <div className="text-sm text-zinc-300 space-y-2">
-        <div>• Derived market creation fees</div>
-        <div>• API subscription for quant / hedge funds</div>
-        <div>• Institutional analytics layer</div>
-        <div>• Future liquidity routing infrastructure</div>
-      </div>
-    </div>
-  );
-}
-
-// =====================================================
-// MAIN PAGE
+// PAGE
 // =====================================================
 
 export default function Page() {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [derived, setDerived] = useState<DerivedMarket[]>([]);
   const [connected, setConnected] = useState(false);
-  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   // =====================================================
   // WS STREAM
@@ -139,57 +63,70 @@ export default function Page() {
 
     ws.onmessage = (event) => {
       try {
-        const payload: WsPayload = JSON.parse(event.data);
+        const payload = JSON.parse(event.data);
+
         if (Array.isArray(payload.data)) {
           setSignals(payload.data);
         }
-      } catch {}
+      } catch (e) {
+        console.error("WS parse error", e);
+      }
     };
 
     return () => ws.close();
   }, []);
 
   // =====================================================
-  // CREATE DERIVED MARKET
+  // CREATE DERIVED MARKET (FIXED PAYLOAD)
   // =====================================================
 
-  const createDerived = async (signal: Signal) => {
-    setLoadingId(signal.id);
-
+  async function createDerived(signal: Signal) {
     try {
-      const res = await fetch(`${API_URL}/api/v1/derived/create`, {
+      setLoading(true);
+
+      const res = await fetch(`${API_BASE}/api/v1/derived/create`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ signal }),
+        body: JSON.stringify({
+          signal: {
+            id: signal.id,
+            title: signal.title,
+            source_platform: signal.source_platform ?? "unknown",
+            retail_odds: signal.retail_odds ?? 0,
+            institutional_odds: signal.institutional_odds ?? 0,
+            deviation_rate: signal.deviation_rate,
+          },
+        }),
       });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text);
+      }
 
       const data = await res.json();
 
-      if (data?.market) {
-        setDerived((prev) => [data.market, ...prev]);
-      }
-    } catch (e) {
-      console.error(e);
+      setDerived((prev) => [data.market, ...prev]);
+    } catch (err) {
+      console.error("createDerived error:", err);
     } finally {
-      setLoadingId(null);
+      setLoading(false);
     }
-  };
+  }
 
   // =====================================================
-  // FILTER SIGNALS
+  // STATS
   // =====================================================
-
-  const actionable = signals.filter(
-    (s) => s.deviation_rate >= 4
-  );
 
   const avgDeviation =
     signals.length === 0
       ? 0
       : signals.reduce((a, b) => a + b.deviation_rate, 0) /
         signals.length;
+
+  const critical = signals.filter((s) => s.deviation_rate >= 10);
 
   // =====================================================
   // UI
@@ -198,119 +135,87 @@ export default function Page() {
   return (
     <main className="min-h-screen bg-black text-white p-6">
 
-      {/* ===================== PITCH ===================== */}
-      <PitchHeader />
-
-      <WhyNow />
-
-      <BusinessModel />
-
-      {/* ===================== LIVE METRICS ===================== */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="border border-zinc-800 p-4 rounded">
-          <div className="text-zinc-400 text-xs">
-            Live Signals
-          </div>
-          <div className="text-2xl font-bold">
-            {signals.length}
-          </div>
-        </div>
-
-        <div className="border border-zinc-800 p-4 rounded">
-          <div className="text-zinc-400 text-xs">
-            Avg Deviation
-          </div>
-          <div className="text-2xl font-bold">
-            {avgDeviation.toFixed(2)}%
-          </div>
-        </div>
-
-        <div className="border border-zinc-800 p-4 rounded">
-          <div className="text-zinc-400 text-xs">
-            Derived Markets
-          </div>
-          <div className="text-2xl font-bold">
-            {derived.length}
-          </div>
-        </div>
-      </div>
-
-      {/* ===================== CONNECTION ===================== */}
-      <div
-        className={`mb-6 px-3 py-2 inline-block rounded text-sm ${
-          connected
-            ? "bg-green-500 text-black"
-            : "bg-red-500 text-white"
-        }`}
-      >
-        {connected ? "LIVE DATA STREAM" : "DISCONNECTED"}
-      </div>
-
-      {/* ===================== DERIVED MARKETS ===================== */}
-      <div className="border border-zinc-800 p-4 rounded mb-6">
-        <h2 className="font-semibold mb-3">
-          Derived Markets
-        </h2>
-
-        {derived.length === 0 ? (
-          <p className="text-zinc-500 text-sm">
-            No markets created yet
+      {/* HEADER */}
+      <div className="flex justify-between mb-8">
+        <div>
+          <h1 className="text-4xl font-bold">AlphaForge</h1>
+          <p className="text-zinc-400">
+            Investor-grade Prediction Market Intelligence
           </p>
-        ) : (
-          <div className="space-y-2">
-            {derived.map((m) => (
-              <div
-                key={m.id}
-                className="border border-zinc-800 p-3 rounded"
-              >
-                <div className="text-sm font-medium">
-                  {m.title}
-                </div>
+        </div>
 
-                <div className="text-xs text-zinc-500">
-                  {m.market_type} | Spread{" "}
-                  {m.entry_spread.toFixed(2)}%
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <div
+          className={`px-3 py-1 rounded text-sm ${
+            connected ? "bg-green-500 text-black" : "bg-red-500"
+          }`}
+        >
+          {connected ? "LIVE" : "OFFLINE"}
+        </div>
       </div>
 
-      {/* ===================== SIGNALS ===================== */}
-      <div className="space-y-3">
-        {actionable.map((s) => (
+      {/* METRICS */}
+      <div className="grid grid-cols-3 gap-4 mb-8">
+        <div className="border border-zinc-800 p-4">
+          Signals: {signals.length}
+        </div>
+
+        <div className="border border-zinc-800 p-4">
+          Avg Deviation: {avgDeviation.toFixed(2)}%
+        </div>
+
+        <div className="border border-zinc-800 p-4 text-red-400">
+          Critical: {critical.length}
+        </div>
+      </div>
+
+      {/* SIGNAL TABLE */}
+      <div className="border border-zinc-800">
+        <table className="w-full">
+          <thead className="bg-zinc-900">
+            <tr>
+              <th className="p-3 text-left">Market</th>
+              <th className="p-3 text-left">Deviation</th>
+              <th className="p-3 text-left">Action</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {signals.map((s) => (
+              <tr key={s.id} className="border-t border-zinc-800">
+                <td className="p-3">{s.title}</td>
+
+                <td className="p-3 text-yellow-400">
+                  {s.deviation_rate.toFixed(2)}%
+                </td>
+
+                <td className="p-3">
+                  <button
+                    disabled={loading}
+                    onClick={() => createDerived(s)}
+                    className="px-3 py-1 bg-blue-600 rounded"
+                  >
+                    Create Derived
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* DERIVED MARKETS */}
+      <div className="mt-10">
+        <h2 className="text-xl mb-4">Derived Markets</h2>
+
+        {derived.map((d) => (
           <div
-            key={s.id}
-            className="border border-zinc-800 p-4 rounded"
+            key={d.id}
+            className="border border-zinc-800 p-3 mb-2"
           >
-            <div className="flex justify-between">
-              <div className="font-medium">
-                {s.title}
-              </div>
-
-              <div className="text-xs text-zinc-500">
-                {s.source_platform}
-              </div>
+            <div className="font-bold">{d.title}</div>
+            <div className="text-sm text-zinc-400">
+              {d.market_type} | spread {d.entry_spread}%
             </div>
-
-            <div className="text-xs text-zinc-400 mt-2">
-              Retail {s.manifold_odds.toFixed(2)}% | Inst{" "}
-              {s.deribit_implied_odds.toFixed(2)}% | Edge{" "}
-              <span className="text-white">
-                {calculateEdge(s).toFixed(0)}
-              </span>
-            </div>
-
-            <button
-              onClick={() => createDerived(s)}
-              disabled={loadingId === s.id}
-              className="mt-3 px-3 py-1 text-sm border border-zinc-700 rounded hover:bg-white hover:text-black"
-            >
-              {loadingId === s.id
-                ? "Creating..."
-                : "Create Derived Market"}
-            </button>
           </div>
         ))}
       </div>
