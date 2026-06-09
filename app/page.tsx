@@ -13,11 +13,13 @@ const WS_BASE = `wss://${BACKEND_HOST}`;
 // 📊 TS STRUCT DEFINITIONS (ROBUST TYPE-SAFETY LAYER)
 // =========================================================
 interface RealtimeSignal {
-  id: string;
+  id: string | number;
   title: string;
   source_platform: string;
-  manifold_odds: number;
-  deribit_implied_odds: number;
+  manifold_odds?: number; // 相容舊版
+  deribit_implied_odds?: number; // 相容舊版
+  retail_odds?: number; // 對齊後端真實欄位
+  institutional_odds?: number; // 對齊後端真實欄位
   deviation_rate: number;
   anomaly_type: string;
 }
@@ -77,20 +79,39 @@ export default function RadarDashboard() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // 1. ASYNC HTTP DATASTREAM INGESTION
+  // 1. ASYNC HTTP DATASTREAM INGESTION (使用 URLSearchParams 避免 404/參數比對失敗)
   useEffect(() => {
     const fetchHistory = async () => {
       setLoadingHistory(true);
       try {
-        const url = `${HTTP_BASE}/api/v1/radar/history?category=${category}&min_deviation=${minDeviation}&resolved_only=${resolvedOnly}&api_key=${apiKey}&limit=30`;
+        const params = new URLSearchParams({
+          category: category,
+          min_deviation: String(minDeviation || 0),
+          resolved_only: String(resolvedOnly),
+          api_key: apiKey,
+          limit: "30"
+        });
+
+        const url = `${HTTP_BASE}/api/v1/radar/history?${params.toString()}`;
         const res = await fetch(url);
+        
+        if (!res.ok) {
+          console.warn(`⚠️ History endpoint returned status ${res.status}`);
+          setHistoryData([]);
+          return;
+        }
+
         const json = await res.json();
-        if (json.status === "success") {
+        if (json.status === "success" && Array.isArray(json.data)) {
           setHistoryData(json.data);
+        } else {
+          setHistoryData([]);
         }
       } catch (err) {
         console.error("❌ Failed to fetch history archive:", err);
+        setHistoryData([]);
       } finally {
         setLoadingHistory(false);
       }
@@ -99,9 +120,11 @@ export default function RadarDashboard() {
     const fetchPlatformLinks = async () => {
       try {
         const res = await fetch(`${HTTP_BASE}/api/v1/platforms/links`);
-        const json = await res.json();
-        if (json.status === "success") {
-          setRefLinks(json.links);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.status === "success") {
+            setRefLinks(json.links || {});
+          }
         }
       } catch (err) {
         console.error("❌ Failed to fetch gateway links:", err);
@@ -112,51 +135,75 @@ export default function RadarDashboard() {
     fetchHistory();
   }, [category, minDeviation, resolvedOnly, apiKey]);
 
-  // 2. LOW-LATENCY WEBSOCKET STREAM ENGINE
+  // 2. LOW-LATENCY WEBSOCKET STREAM ENGINE (安全編碼與有序重連)
   useEffect(() => {
     const connectWebSocket = () => {
+      // 清除既有的重連定時器，避免多重疊加
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+
       if (wsRef.current) {
+        wsRef.current.onclose = null; // 移除舊的監聽器避免觸發閉包錯誤
         wsRef.current.close();
       }
 
       setWsStatus("CONNECTING");
-      const wsUrl = `${WS_BASE}/ws/radar?category=${category}&api_key=${apiKey}`;
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+      
+      // 對參數進行安全編碼
+      const encodedCat = encodeURIComponent(category);
+      const encodedKey = encodeURIComponent(apiKey);
+      const wsUrl = `${WS_BASE}/ws/radar?category=${encodedCat}&api_key=${encodedKey}`;
+      
+      try {
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
 
-      ws.onopen = () => {
-        setWsStatus("CONNECTED");
-        console.log(`🚀 [AlphaForge WS] Relayer channel active: ${category}`);
-      };
+        ws.onopen = () => {
+          setWsStatus("CONNECTED");
+          console.log(`🚀 [AlphaForge WS] Relayer channel active: ${category}`);
+        };
 
-      ws.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          if (payload.data) {
-            setRealtimeData(payload.data);
-            setLastUpdateTime(payload.timestamp);
+        ws.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            if (payload && Array.isArray(payload.data)) {
+              setRealtimeData(payload.data);
+              setLastUpdateTime(payload.timestamp || Math.floor(Date.current / 1000));
+            }
+          } catch (err) {
+            console.error("⚠️ Stream data parsing anomaly:", err);
           }
-        } catch (err) {
-          console.error("⚠️ Stream data parsing anomaly:", err);
-        }
-      };
+        };
 
-      ws.onclose = () => {
-        setWsStatus("DISCONNECTED");
-        setTimeout(() => {
-          if (wsRef.current === ws) connectWebSocket();
-        }, 5000);
-      };
+        ws.onclose = (event) => {
+          console.warn(`❌ [AlphaForge WS] Connection closed. Code: ${event.code}`);
+          setWsStatus("DISCONNECTED");
+          
+          // 穩健重連：避免機關槍效應，給予後端 5 秒冷卻緩衝
+          reconnectTimeoutRef.current = setTimeout(() => {
+            connectWebSocket();
+          }, 5000);
+        };
 
-      ws.onerror = () => {
+        ws.onerror = (err) => {
+          console.error("💥 [AlphaForge WS] Socket Error observed:", err);
+          setWsStatus("ERROR");
+        };
+      } catch (err) {
+        console.error("💥 Failed to instantiate WebSocket:", err);
         setWsStatus("ERROR");
-      };
+      }
     };
 
     connectWebSocket();
 
     return () => {
-      if (wsRef.current) wsRef.current.close();
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (wsRef.current) {
+        wsRef.current.onclose = null;
+        wsRef.current.close();
+      }
     };
   }, [category, apiKey]);
 
@@ -167,7 +214,12 @@ export default function RadarDashboard() {
 
     setBindMessage({ text: "Verifying secure node credentials...", isError: false });
     try {
-      const url = `${HTTP_BASE}/api/v1/platforms/bind?api_key=${apiKey}&platform=${bindPlatform}&uid=${encodeURIComponent(bindUid)}`;
+      const params = new URLSearchParams({
+        api_key: apiKey,
+        platform: bindPlatform,
+        uid: bindUid.trim()
+      });
+      const url = `${HTTP_BASE}/api/v1/platforms/bind?${params.toString()}`;
       const res = await fetch(url, { method: "POST" });
       const json = await res.json();
       
@@ -187,11 +239,15 @@ export default function RadarDashboard() {
     const currentDomain = typeof window !== 'undefined' ? window.location.origin : 'https://alphaforge.net';
     const relayerUrl = `${currentDomain}?ref=${apiKey}&node=${item.id}`;
     
+    // 防禦性擷取欄位數據 (相容後端命名可能發生的轉變)
+    const retailOdds = item.retail_odds ?? item.manifold_odds ?? 0;
+    const instOdds = item.institutional_odds ?? item.deribit_implied_odds ?? 0;
+
     const alphaTemplate = `💡 [Structural Arbitrage Alert via AlphaForge Relayer]
 Market Underlying: ${item.title}
 Platform Source: ${item.source_platform}
-Retail Odds (DPM): ${item.manifold_odds}%
-Inst Implied Probability: ${item.deribit_implied_odds}%
+Retail Odds (DPM): ${retailOdds}%
+Inst Implied Probability: ${instOdds}%
 Current Deviation: ${item.deviation_rate} [${item.anomaly_type}]
 
 Mass retail sentiment is completely decoupled from institutional true-risk derivative positioning. Massive structural hedge inefficiency captured.
@@ -199,7 +255,7 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
 👉 ${relayerUrl}`;
 
     navigator.clipboard.writeText(alphaTemplate).then(() => {
-      setCopiedId(item.id);
+      setCopiedId(String(item.id));
       setTimeout(() => setCopiedId(null), 2000);
     }).catch(err => {
       console.error("Failed to inject to clipboard:", err);
@@ -208,6 +264,7 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
 
   // 5. STYLING ARCHITECTURE
   const getAnomalyClass = (type: string) => {
+    if (!type) return "bg-slate-800 text-slate-400";
     if (type.includes("CRITICAL")) return "bg-rose-500/10 text-rose-400 border border-rose-500/30 font-bold animate-pulse";
     if (type.includes("MISPRICING")) return "bg-amber-500/10 text-amber-400 border border-amber-500/30";
     return "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
@@ -298,7 +355,7 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
                         <th className="py-3 px-2">FEED_ID</th>
                         <th className="py-3 px-2 w-1/4">MARKET UNDERLYING</th>
                         <th className="py-3 px-2">SOURCE</th>
-                        <th className="py-3 px-2 text-right text-amber-500/80">RETAIL ODDS (DPM)</th>
+                        <th className="py-3 px-2 text-right text-amber-500/80">RETAIL ODDS</th>
                         <th className="py-3 px-2 text-right text-indigo-500/80">INST IMPLIED</th>
                         <th className="py-3 px-2 text-center text-cyan-500/80">DEVIATION</th>
                         <th className="py-3 px-2 text-center">STATUS</th>
@@ -306,50 +363,53 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
-                      {realtimeData.map((item, index) => (
-                        <tr key={index} className="hover:bg-slate-800/30 transition-colors">
-                          <td className="py-3 px-2 text-slate-600 font-mono">#{item.id}</td>
-                          <td className="py-3 px-2 text-slate-200 font-sans font-medium">{item.title}</td>
-                          <td className="py-3 px-2">
-                            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-bold">
-                              {item.source_platform}
-                            </span>
-                          </td>
-                          <td className="py-3 px-2 text-right text-amber-400 font-bold">{item.manifold_odds}%</td>
-                          <td className="py-3 px-2 text-right text-indigo-400 font-bold">{item.deribit_implied_odds}%</td>
-                          <td className="py-3 px-2 text-center text-cyan-400 font-bold text-sm">{item.deviation_rate}</td>
-                          <td className="py-3 px-2 text-center">
-                            <span className={`px-2 py-0.5 rounded text-[10px] ${getAnomalyClass(item.anomaly_type)}`}>
-                              {item.anomaly_type}
-                            </span>
-                          </td>
-                          <td className="py-3 px-2 text-right">
-                            <div className="flex justify-end items-center gap-2">
-                              {/* VIRAL SHARE BUTTON */}
-                              <button
-                                onClick={() => handleCopyAlphaText(item)}
-                                className={`px-2 py-1 rounded text-[10px] font-bold tracking-tight uppercase cursor-pointer border transition-all ${
-                                  copiedId === item.id
-                                    ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
-                                    : "bg-slate-950 text-slate-400 border-slate-800 hover:border-cyan-500/40 hover:text-cyan-400"
-                                }`}
-                              >
-                                {copiedId === item.id ? "✓ Copied" : "📢 Share Alpha"}
-                              </button>
-                              
-                              {/* ROUTING BUTTON (NON-CUSTODIAL REDIRECT) */}
-                              <a
-                                href={refLinks[item.source_platform] || "#"}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="px-2 py-1 rounded bg-gradient-to-r from-cyan-950 to-blue-950 text-cyan-400 border border-cyan-800/40 hover:border-cyan-400/60 font-bold text-[10px] tracking-tight uppercase transition-all"
-                              >
-                                ⚡ Route Order
-                              </a>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      {realtimeData.map((item, index) => {
+                        // 雙向相容：優先讀取後端架構的命名
+                        const displayRetail = item.retail_odds ?? item.manifold_odds ?? 0;
+                        const displayInst = item.institutional_odds ?? item.deribit_implied_odds ?? 0;
+
+                        return (
+                          <tr key={index} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="py-3 px-2 text-slate-600 font-mono">#{item.id}</td>
+                            <td className="py-3 px-2 text-slate-200 font-sans font-medium">{item.title}</td>
+                            <td className="py-3 px-2">
+                              <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-bold">
+                                {item.source_platform}
+                              </span>
+                            </td>
+                            <td className="py-3 px-2 text-right text-amber-400 font-bold">{displayRetail}%</td>
+                            <td className="py-3 px-2 text-right text-indigo-400 font-bold">{displayInst}%</td>
+                            <td className="py-3 px-2 text-center text-cyan-400 font-bold text-sm">{item.deviation_rate}</td>
+                            <td className="py-3 px-2 text-center">
+                              <span className={`px-2 py-0.5 rounded text-[10px] ${getAnomalyClass(item.anomaly_type)}`}>
+                                {item.anomaly_type}
+                              </span>
+                            </td>
+                            <td className="py-3 px-2 text-right">
+                              <div className="flex justify-end items-center gap-2">
+                                <button
+                                  onClick={() => handleCopyAlphaText(item)}
+                                  className={`px-2 py-1 rounded text-[10px] font-bold tracking-tight uppercase cursor-pointer border transition-all ${
+                                    copiedId === String(item.id)
+                                      ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
+                                      : "bg-slate-950 text-slate-400 border-slate-800 hover:border-cyan-500/40 hover:text-cyan-400"
+                                  }`}
+                                >
+                                  {copiedId === String(item.id) ? "✓ Copied" : "📢 Share Alpha"}
+                                </button>
+                                <a
+                                  href={refLinks[item.source_platform] || "#"}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-2 py-1 rounded bg-gradient-to-r from-cyan-950 to-blue-950 text-cyan-400 border border-cyan-800/40 hover:border-cyan-400/60 font-bold text-[10px] tracking-tight uppercase transition-all"
+                                >
+                                  ⚡ Route Order
+                                </a>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -423,19 +483,19 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
                           </td>
                           <td className="py-2.5 px-2 text-center font-bold text-slate-300">{rec.deviation_rate}</td>
                           <td className="py-2.5 px-2 text-center">
-                            {rec.performance.is_resolved === 1 ? (
+                            {rec.performance?.is_resolved === 1 ? (
                               <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px]">RESOLVED</span>
-                            ) : rec.performance.is_resolved === -1 ? (
+                            ) : rec.performance?.is_resolved === -1 ? (
                               <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 text-[10px]">VOIDED</span>
                             ) : (
                               <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[10px]">MONITORING</span>
                             )}
                           </td>
                           <td className={`py-2.5 px-2 text-right font-bold ${
-                            rec.performance.simulated_pnl && rec.performance.simulated_pnl > 0 ? "text-emerald-400" : 
-                            rec.performance.simulated_pnl && rec.performance.simulated_pnl < 0 ? "text-rose-400" : "text-slate-500"
+                            rec.performance?.simulated_pnl && rec.performance.simulated_pnl > 0 ? "text-emerald-400" : 
+                            rec.performance?.simulated_pnl && rec.performance.simulated_pnl < 0 ? "text-rose-400" : "text-slate-500"
                           }`}>
-                            {rec.performance.simulated_pnl != null ? `${rec.performance.simulated_pnl} USDT` : "--"}
+                            {rec.performance?.simulated_pnl != null ? `${rec.performance.simulated_pnl} USDT` : "--"}
                           </td>
                           <td className="py-2.5 px-2 text-right text-slate-600 text-[11px]">{rec.created_at}</td>
                         </tr>
