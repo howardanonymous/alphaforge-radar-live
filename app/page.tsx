@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, FormEvent } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 // =========================================================
 // 🌐 NETWORK ENVIRONMENT CONFIGURATION
@@ -13,13 +13,11 @@ const WS_BASE = `wss://${BACKEND_HOST}`;
 // 📊 TS STRUCT DEFINITIONS (ROBUST TYPE-SAFETY LAYER)
 // =========================================================
 interface RealtimeSignal {
-  id: string | number;
+  id: string;
   title: string;
   source_platform: string;
-  manifold_odds?: number; // 相容舊版
-  deribit_implied_odds?: number; // 相容舊版
-  retail_odds?: number; // 對齊後端真實欄位
-  institutional_odds?: number; // 對齊後端真實欄位
+  manifold_odds: number;
+  deribit_implied_odds: number;
   deviation_rate: number;
   anomaly_type: string;
 }
@@ -48,11 +46,6 @@ interface ReferralLinks {
   [key: string]: string;
 }
 
-interface BindMessage {
-  text: string;
-  isError: boolean;
-}
-
 export default function RadarDashboard() {
   // --- SYSTEM CORE STATES ---
   const [category, setCategory] = useState<string>("CRYPTO");
@@ -67,11 +60,6 @@ export default function RadarDashboard() {
   const [resolvedOnly, setResolvedOnly] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
 
-  // --- RELAYER ROUTING BINDING STATES ---
-  const [bindPlatform, setBindPlatform] = useState<string>("BINANCE");
-  const [bindUid, setBindUid] = useState<string>("");
-  const [bindMessage, setBindMessage] = useState<BindMessage>({ text: "", isError: false });
-
   // --- ECOSYSTEM REBATE GATEWAYS ---
   const [refLinks, setRefLinks] = useState<ReferralLinks>({});
 
@@ -79,39 +67,20 @@ export default function RadarDashboard() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // 1. ASYNC HTTP DATASTREAM INGESTION (使用 URLSearchParams 避免 404/參數比對失敗)
+  // 1. ASYNC HTTP DATASTREAM INGESTION
   useEffect(() => {
     const fetchHistory = async () => {
       setLoadingHistory(true);
       try {
-        const params = new URLSearchParams({
-          category: category,
-          min_deviation: String(minDeviation || 0),
-          resolved_only: String(resolvedOnly),
-          api_key: apiKey,
-          limit: "30"
-        });
-
-        const url = `${HTTP_BASE}/api/v1/radar/history?${params.toString()}`;
+        const url = `${HTTP_BASE}/api/v1/radar/history?category=${category}&min_deviation=${minDeviation}&resolved_only=${resolvedOnly}&api_key=${apiKey}&limit=30`;
         const res = await fetch(url);
-        
-        if (!res.ok) {
-          console.warn(`⚠️ History endpoint returned status ${res.status}`);
-          setHistoryData([]);
-          return;
-        }
-
         const json = await res.json();
-        if (json.status === "success" && Array.isArray(json.data)) {
+        if (json.status === "success") {
           setHistoryData(json.data);
-        } else {
-          setHistoryData([]);
         }
       } catch (err) {
         console.error("❌ Failed to fetch history archive:", err);
-        setHistoryData([]);
       } finally {
         setLoadingHistory(false);
       }
@@ -120,11 +89,9 @@ export default function RadarDashboard() {
     const fetchPlatformLinks = async () => {
       try {
         const res = await fetch(`${HTTP_BASE}/api/v1/platforms/links`);
-        if (res.ok) {
-          const json = await res.json();
-          if (json.status === "success") {
-            setRefLinks(json.links || {});
-          }
+        const json = await res.json();
+        if (json.status === "success") {
+          setRefLinks(json.links);
         }
       } catch (err) {
         console.error("❌ Failed to fetch gateway links:", err);
@@ -135,119 +102,64 @@ export default function RadarDashboard() {
     fetchHistory();
   }, [category, minDeviation, resolvedOnly, apiKey]);
 
-  // 2. LOW-LATENCY WEBSOCKET STREAM ENGINE (安全編碼與有序重連)
+  // 2. LOW-LATENCY WEBSOCKET STREAM ENGINE
   useEffect(() => {
     const connectWebSocket = () => {
-      // 清除既有的重連定時器，避免多重疊加
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-
       if (wsRef.current) {
-        wsRef.current.onclose = null; // 移除舊的監聽器避免觸發閉包錯誤
         wsRef.current.close();
       }
 
       setWsStatus("CONNECTING");
-      
-      // 對參數進行安全編碼
-      const encodedCat = encodeURIComponent(category);
-      const encodedKey = encodeURIComponent(apiKey);
-      const wsUrl = `${WS_BASE}/ws/radar?category=${encodedCat}&api_key=${encodedKey}`;
-      
-      try {
-        const ws = new WebSocket(wsUrl);
-        wsRef.current = ws;
+      const wsUrl = `${WS_BASE}/ws/radar?category=${category}&api_key=${apiKey}`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-        ws.onopen = () => {
-          setWsStatus("CONNECTED");
-          console.log(`🚀 [AlphaForge WS] Relayer channel active: ${category}`);
-        };
+      ws.onopen = () => {
+        setWsStatus("CONNECTED");
+        console.log(`🚀 [AlphaForge WS] Relayer channel active: ${category}`);
+      };
 
-        ws.onmessage = (event) => {
-          try {
-            const payload = JSON.parse(event.data);
-            if (payload && Array.isArray(payload.data)) {
-              setRealtimeData(payload.data);
-              setLastUpdateTime(payload.timestamp || Math.floor(Date.current / 1000));
-            }
-          } catch (err) {
-            console.error("⚠️ Stream data parsing anomaly:", err);
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.data) {
+            setRealtimeData(payload.data);
+            setLastUpdateTime(payload.timestamp);
           }
-        };
+        } catch (err) {
+          console.error("⚠️ Stream data parsing anomaly:", err);
+        }
+      };
 
-        ws.onclose = (event) => {
-          console.warn(`❌ [AlphaForge WS] Connection closed. Code: ${event.code}`);
-          setWsStatus("DISCONNECTED");
-          
-          // 穩健重連：避免機關槍效應，給予後端 5 秒冷卻緩衝
-          reconnectTimeoutRef.current = setTimeout(() => {
-            connectWebSocket();
-          }, 5000);
-        };
+      ws.onclose = () => {
+        setWsStatus("DISCONNECTED");
+        setTimeout(() => {
+          if (wsRef.current === ws) connectWebSocket();
+        }, 5000);
+      };
 
-        ws.onerror = (err) => {
-          console.error("💥 [AlphaForge WS] Socket Error observed:", err);
-          setWsStatus("ERROR");
-        };
-      } catch (err) {
-        console.error("💥 Failed to instantiate WebSocket:", err);
+      ws.onerror = () => {
         setWsStatus("ERROR");
-      }
+      };
     };
 
     connectWebSocket();
 
     return () => {
-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-      if (wsRef.current) {
-        wsRef.current.onclose = null;
-        wsRef.current.close();
-      }
+      if (wsRef.current) wsRef.current.close();
     };
   }, [category, apiKey]);
 
-  // 3. NODE UID ROUTING DISPATCHER
-  const handleBindPlatform = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!bindUid.trim()) return;
-
-    setBindMessage({ text: "Verifying secure node credentials...", isError: false });
-    try {
-      const params = new URLSearchParams({
-        api_key: apiKey,
-        platform: bindPlatform,
-        uid: bindUid.trim()
-      });
-      const url = `${HTTP_BASE}/api/v1/platforms/bind?${params.toString()}`;
-      const res = await fetch(url, { method: "POST" });
-      const json = await res.json();
-      
-      if (res.ok && json.status === "success") {
-        setBindMessage({ text: `Success: Node linked to ${bindPlatform}`, isError: false });
-        setBindUid("");
-      } else {
-        setBindMessage({ text: json.detail || "Routing authentication failed", isError: true });
-      }
-    } catch (err) {
-      setBindMessage({ text: "Network timeout or Server unreachable", isError: true });
-    }
-  };
-
-  // 4. VIRAL COPIER: GENERATING BOX-OFFICE ALPHA MARKETING COPY
+  // 3. VIRAL COPIER: GENERATING BOX-OFFICE ALPHA MARKETING COPY
   const handleCopyAlphaText = (item: RealtimeSignal) => {
     const currentDomain = typeof window !== 'undefined' ? window.location.origin : 'https://alphaforge.net';
     const relayerUrl = `${currentDomain}?ref=${apiKey}&node=${item.id}`;
     
-    // 防禦性擷取欄位數據 (相容後端命名可能發生的轉變)
-    const retailOdds = item.retail_odds ?? item.manifold_odds ?? 0;
-    const instOdds = item.institutional_odds ?? item.deribit_implied_odds ?? 0;
-
     const alphaTemplate = `💡 [Structural Arbitrage Alert via AlphaForge Relayer]
 Market Underlying: ${item.title}
 Platform Source: ${item.source_platform}
-Retail Odds (DPM): ${retailOdds}%
-Inst Implied Probability: ${instOdds}%
+Retail Odds (DPM): ${item.manifold_odds}%
+Inst Implied Probability: ${item.deribit_implied_odds}%
 Current Deviation: ${item.deviation_rate} [${item.anomaly_type}]
 
 Mass retail sentiment is completely decoupled from institutional true-risk derivative positioning. Massive structural hedge inefficiency captured.
@@ -255,16 +167,15 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
 👉 ${relayerUrl}`;
 
     navigator.clipboard.writeText(alphaTemplate).then(() => {
-      setCopiedId(String(item.id));
+      setCopiedId(item.id);
       setTimeout(() => setCopiedId(null), 2000);
     }).catch(err => {
       console.error("Failed to inject to clipboard:", err);
     });
   };
 
-  // 5. STYLING ARCHITECTURE
+  // 4. STYLING ARCHITECTURE
   const getAnomalyClass = (type: string) => {
-    if (!type) return "bg-slate-800 text-slate-400";
     if (type.includes("CRITICAL")) return "bg-rose-500/10 text-rose-400 border border-rose-500/30 font-bold animate-pulse";
     if (type.includes("MISPRICING")) return "bg-amber-500/10 text-amber-400 border border-amber-500/30";
     return "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
@@ -355,7 +266,7 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
                         <th className="py-3 px-2">FEED_ID</th>
                         <th className="py-3 px-2 w-1/4">MARKET UNDERLYING</th>
                         <th className="py-3 px-2">SOURCE</th>
-                        <th className="py-3 px-2 text-right text-amber-500/80">RETAIL ODDS</th>
+                        <th className="py-3 px-2 text-right text-amber-500/80">RETAIL ODDS (DPM)</th>
                         <th className="py-3 px-2 text-right text-indigo-500/80">INST IMPLIED</th>
                         <th className="py-3 px-2 text-center text-cyan-500/80">DEVIATION</th>
                         <th className="py-3 px-2 text-center">STATUS</th>
@@ -363,53 +274,40 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
-                      {realtimeData.map((item, index) => {
-                        // 雙向相容：優先讀取後端架構的命名
-                        const displayRetail = item.retail_odds ?? item.manifold_odds ?? 0;
-                        const displayInst = item.institutional_odds ?? item.deribit_implied_odds ?? 0;
-
-                        return (
-                          <tr key={index} className="hover:bg-slate-800/30 transition-colors">
-                            <td className="py-3 px-2 text-slate-600 font-mono">#{item.id}</td>
-                            <td className="py-3 px-2 text-slate-200 font-sans font-medium">{item.title}</td>
-                            <td className="py-3 px-2">
-                              <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-bold">
-                                {item.source_platform}
-                              </span>
-                            </td>
-                            <td className="py-3 px-2 text-right text-amber-400 font-bold">{displayRetail}%</td>
-                            <td className="py-3 px-2 text-right text-indigo-400 font-bold">{displayInst}%</td>
-                            <td className="py-3 px-2 text-center text-cyan-400 font-bold text-sm">{item.deviation_rate}</td>
-                            <td className="py-3 px-2 text-center">
-                              <span className={`px-2 py-0.5 rounded text-[10px] ${getAnomalyClass(item.anomaly_type)}`}>
-                                {item.anomaly_type}
-                              </span>
-                            </td>
-                            <td className="py-3 px-2 text-right">
-                              <div className="flex justify-end items-center gap-2">
-                                <button
-                                  onClick={() => handleCopyAlphaText(item)}
-                                  className={`px-2 py-1 rounded text-[10px] font-bold tracking-tight uppercase cursor-pointer border transition-all ${
-                                    copiedId === String(item.id)
-                                      ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
-                                      : "bg-slate-950 text-slate-400 border-slate-800 hover:border-cyan-500/40 hover:text-cyan-400"
-                                  }`}
-                                >
-                                  {copiedId === String(item.id) ? "✓ Copied" : "📢 Share Alpha"}
-                                </button>
-                                <a
-                                  href={refLinks[item.source_platform] || "#"}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="px-2 py-1 rounded bg-gradient-to-r from-cyan-950 to-blue-950 text-cyan-400 border border-cyan-800/40 hover:border-cyan-400/60 font-bold text-[10px] tracking-tight uppercase transition-all"
-                                >
-                                  ⚡ Route Order
-                                </a>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      {realtimeData.map((item, index) => (
+                        <tr key={index} className="hover:bg-slate-800/30 transition-colors">
+                          <td className="py-3 px-2 text-slate-600 font-mono">#{item.id}</td>
+                          <td className="py-3 px-2 text-slate-200 font-sans font-medium">{item.title}</td>
+                          <td className="py-3 px-2">
+                            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-bold">
+                              {item.source_platform}
+                            </span>
+                          </td>
+                          <td className="py-3 px-2 text-right text-amber-400 font-bold">{item.manifold_odds}%</td>
+                          <td className="py-3 px-2 text-right text-indigo-400 font-bold">{item.deribit_implied_odds}%</td>
+                          <td className="py-3 px-2 text-center text-cyan-400 font-bold text-sm">{item.deviation_rate}</td>
+                          <td className="py-3 px-2 text-center">
+                            <span className={`px-2 py-0.5 rounded text-[10px] ${getAnomalyClass(item.anomaly_type)}`}>
+                              {item.anomaly_type}
+                            </span>
+                          </td>
+                          <td className="py-3 px-2 text-right">
+                            <div className="flex justify-end items-center gap-2">
+                              {/* VIRAL SHARE BUTTON */}
+                              <button
+                                onClick={() => handleCopyAlphaText(item)}
+                                className={`px-3 py-1.5 rounded text-[11px] font-bold tracking-tight uppercase cursor-pointer border transition-all ${
+                                  copiedId === item.id
+                                    ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
+                                    : "bg-slate-950 text-slate-400 border-slate-800 hover:border-cyan-500/40 hover:text-cyan-400"
+                                }`}
+                              >
+                                {copiedId === item.id ? "✓ Copied" : "📢 Share Alpha"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -483,19 +381,19 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
                           </td>
                           <td className="py-2.5 px-2 text-center font-bold text-slate-300">{rec.deviation_rate}</td>
                           <td className="py-2.5 px-2 text-center">
-                            {rec.performance?.is_resolved === 1 ? (
+                            {rec.performance.is_resolved === 1 ? (
                               <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px]">RESOLVED</span>
-                            ) : rec.performance?.is_resolved === -1 ? (
+                            ) : rec.performance.is_resolved === -1 ? (
                               <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 text-[10px]">VOIDED</span>
                             ) : (
                               <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[10px]">MONITORING</span>
                             )}
                           </td>
                           <td className={`py-2.5 px-2 text-right font-bold ${
-                            rec.performance?.simulated_pnl && rec.performance.simulated_pnl > 0 ? "text-emerald-400" : 
-                            rec.performance?.simulated_pnl && rec.performance.simulated_pnl < 0 ? "text-rose-400" : "text-slate-500"
+                            rec.performance.simulated_pnl && rec.performance.simulated_pnl > 0 ? "text-emerald-400" : 
+                            rec.performance.simulated_pnl && rec.performance.simulated_pnl < 0 ? "text-rose-400" : "text-slate-500"
                           }`}>
-                            {rec.performance?.simulated_pnl != null ? `${rec.performance.simulated_pnl} USDT` : "--"}
+                            {rec.performance.simulated_pnl != null ? `${rec.performance.simulated_pnl} USDT` : "--"}
                           </td>
                           <td className="py-2.5 px-2 text-right text-slate-600 text-[11px]">{rec.created_at}</td>
                         </tr>
@@ -507,65 +405,53 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
             </div>
           </div>
 
-          {/* RIGHT SIDEBAR: COMMERCIAL BINDING & REFS (1 COL) */}
+          {/* RIGHT SIDEBAR: TERMINAL INTEL & ECOSYSTEM GATEWAYS (1 COL) */}
           <div className="space-y-6">
             
-            {/* UID BINDING SYSTEM */}
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5">
-              <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-1">🔗 RELAYER LIQUIDITY ROUTING</h3>
-              <p className="text-xs text-slate-500 mb-4">Bind your destination platform UID to authorize downstream rebate validation and activate high-tier middleware nodes.</p>
-              
-              <form onSubmit={handleBindPlatform} className="space-y-4">
-                <div>
-                  <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-bold">TARGET EXCHANGE PLATFORM</label>
-                  <select 
-                    value={bindPlatform}
-                    onChange={(e) => setBindPlatform(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-cyan-500 cursor-pointer"
-                  >
-                    <option value="BINANCE">BINANCE (GLOBAL)</option>
-                    <option value="IB">INTERACTIVE BROKERS</option>
-                    <option value="MANIFOLD">MANIFOLD MARKETS</option>
-                    <option value="KALSHI">KALSHI CFTC</option>
-                    <option value="METACULUS">METACULUS INTELLIGENCE</option>
-                  </select>
+            {/* TERMINAL OPERATIONAL STATUS */}
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 font-mono">
+              <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-3 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                💻 CORE RELAYER SPEC
+              </h3>
+              <div className="space-y-2 text-xs text-slate-400">
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-500">Node Environment</span>
+                  <span className="text-cyan-400 font-bold">Production-Alpha</span>
                 </div>
-
-                <div>
-                  <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-bold">ACCOUNT TICKER / UID</label>
-                  <input 
-                    type="text"
-                    required
-                    placeholder="Enter Exchange UID or Account ID..."
-                    value={bindUid}
-                    onChange={(e) => setBindUid(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
-                  />
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-500">Pipeline Latency</span>
+                  <span className="text-emerald-400 font-bold">&lt; 150ms</span>
                 </div>
-
-                <button 
-                  type="submit"
-                  className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-xs py-2.5 rounded transition-all tracking-widest cursor-pointer uppercase"
-                >
-                  AUTHORIZE RELAYER ROUTE
-                </button>
-              </form>
-
-              {bindMessage.text && (
-                <div className={`mt-3 text-center p-2 rounded text-xs border font-sans ${
-                  bindMessage.isError 
-                    ? "bg-rose-500/10 text-rose-400 border-rose-500/20" 
-                    : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                }`}>
-                  {bindMessage.text}
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-500">Data Sovereignty</span>
+                  <span className="text-slate-300">Enabled (RAW CSV/JSON)</span>
                 </div>
-              )}
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Execution Mode</span>
+                  <span className="text-amber-500 font-bold">Manual / Self-Custody</span>
+                </div>
+              </div>
             </div>
 
-            {/* REFERRAL LINKS */}
+            {/* BACKTEST DATA FREEDOM BANNER */}
+            <div className="bg-gradient-to-br from-slate-900 via-[#0c1424] to-slate-950 border border-slate-800 rounded-xl p-5">
+              <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-1">📊 BACKTEST DATA FREEDOM</h3>
+              <p className="text-xs text-slate-400 leading-relaxed mb-3 font-sans">
+                本平台堅守<strong>數據自由</strong>原則。我們不控管或綁定任何用戶交易 API，亦不代客執行任何落單策略。
+              </p>
+              <p className="text-xs text-slate-500 leading-relaxed mb-4 font-sans">
+                終端用戶可自由切換觀察板塊、利用歷史封存區下載完整 PostgreSQL 結構化數據，並導入自身的 C++ / Cython 交易模組進行地端（Local）的極速回測與量化建模。
+              </p>
+              <div className="p-2.5 rounded bg-slate-950 border border-slate-800/50 text-[11px] text-cyan-500/90 text-center font-bold">
+                🔒 Non-Custodial • 100% Data-Driven
+              </div>
+            </div>
+
+            {/* REFERRAL GATEWAYS (PURE WEBLINK) */}
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5">
-              <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-1">🎁 OFFICIAL LIQUIDITY GATEWAYS</h3>
-              <p className="text-xs text-slate-500 mb-4">Initialize exchange sub-accounts via validated relayer nodes to capture trading fee rebates and algorithmic routing privileges.</p>
+              <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-1">🎁 LIQUIDITY GATEWAYS</h3>
+              <p className="text-xs text-slate-500 mb-4 font-sans">透過驗證節點通道前往各大官方交易平台。請自行於官方安全環境下配置您的專屬策略執行單。</p>
               
               <div className="space-y-2 text-xs">
                 {Object.entries(refLinks).map(([platform, url]) => (
@@ -574,22 +460,16 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
                     href={url} 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className="flex items-center justify-between p-2.5 rounded bg-slate-950 border border-slate-800/80 hover:border-cyan-500/40 text-slate-400 hover:text-cyan-400 transition-all"
+                    className="flex items-center justify-between p-2.5 rounded bg-slate-950 border border-slate-800/80 hover:border-cyan-500/40 text-slate-400 hover:text-cyan-400 transition-all cursor-pointer group"
                   >
-                    <span className="font-bold tracking-wide">{platform}</span>
-                    <span className="text-[10px] bg-slate-900 px-1.5 py-0.5 rounded text-slate-500">PROCEED →</span>
+                    <span className="font-bold tracking-wide group-hover:translate-x-0.5 transition-transform">{platform}</span>
+                    <span className="text-[10px] bg-slate-900 px-1.5 py-0.5 rounded text-slate-500 group-hover:text-cyan-400">VISIT EXCHANGE ↗</span>
                   </a>
                 ))}
                 {Object.keys(refLinks).length === 0 && (
-                  <div className="text-slate-600 text-center py-2">Polling exchange endpoint map...</div>
+                  <div className="text-slate-600 text-center py-2 animate-pulse">Polling gateway map...</div>
                 )}
               </div>
-            </div>
-
-            {/* SYSTEM LOGIC BRIEF */}
-            <div className="p-4 rounded-xl border border-slate-800/60 bg-slate-950/40 text-xs text-slate-500 space-y-2 font-sans">
-              <p className="font-bold text-slate-400">💡 MIDDLEWARE SPECIFICATION:</p>
-              <p>AlphaForge operates as a pure non-custodial middleware relayer. When crowd sentiment triggers pricing decoupling in retail DPMs against delta-hedged institutional volatility models, the engine isolates the mispricing gap. Orders are routed directly via web3 wallets or native APIs to downstream protocols. No execution capital is held or managed by this terminal.</p>
             </div>
 
           </div>
