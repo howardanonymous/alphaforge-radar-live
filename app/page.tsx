@@ -1,32 +1,18 @@
-import { Metadata } from 'next';
-import React, { useState, useEffect, useRef } from 'react';
-
-// =========================================================
-// 📌 1. SERVERSIDE METADATA (由伺服器直吐，確保 100% 塞進真正的 <head>)
-// =========================================================
-export const metadata: Metadata = {
-  title: 'ALPHAFORGE METAMIDDLEWARE RELAYER',
-  description: 'Cross-Market Structural Inefficiency & Liquidity Routing Protocol v11.0.0',
-  other: {
-    // 📌 這裡就是你要加入的 Base 生態系唯一驗證 Meta 標籤！
-    'base:app_id': '6a29f546654784aa1565a9bb7',
-  },
-};
-
-// 這是主入口（伺服器組件外殼），負責直接渲染底下的客戶端面板功能
-export default function RadarDashboard() {
-  return <RadarDashboardClient />;
-}
-
-// =========================================================
-// 📌 2. CLIENTSIDE ENGINE (標註為 use client，完整保留你的硬核功能)
-// =========================================================
 'use client';
 
+import React, { useState, useEffect, useRef } from 'react';
+import Head from 'next/head'; // 📌 終極核心：用 Next.js 原生的 Head 組件，直接把標籤暴力釘進大腦
+
+// =========================================================
+// 🌐 NETWORK ENVIRONMENT CONFIGURATION
+// =========================================================
 const BACKEND_HOST = "alphaforge-backend-dtqv.onrender.com";
 const HTTP_BASE = `https://${BACKEND_HOST}`; 
 const WS_BASE = `wss://${BACKEND_HOST}`;   
 
+// =========================================================
+// 📊 TS STRUCT DEFINITIONS (ROBUST TYPE-SAFETY LAYER)
+// =========================================================
 interface RealtimeSignal {
   id: string;
   title: string;
@@ -61,7 +47,7 @@ interface ReferralLinks {
   [key: string]: string;
 }
 
-function RadarDashboardClient() {
+export default function RadarDashboard() {
   // --- SYSTEM CORE STATES ---
   const [category, setCategory] = useState<string>("CRYPTO");
   const [apiKey, setApiKey] = useState<string>("ALPHA_VIP_USER");
@@ -197,284 +183,257 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
   };
 
   return (
-    <div className="min-h-screen bg-[#090d16] text-slate-200 p-4 lg:p-8 font-mono">
-      <div className="max-w-[1600px] mx-auto">
-        
-        {/* 📌 這裡是你原本寫的視覺 <header> (網頁頁首) */}
-        <header className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-800 pb-6 mb-6 gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl lg:text-2xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
-                ALPHAFORGE METAMIDDLEWARE RELAYER
-              </h1>
-              <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
-                wsStatus === "CONNECTED" ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40" :
-                wsStatus === "CONNECTING" ? "bg-amber-500/20 text-amber-400 border-amber-500/40 animate-pulse" :
-                "bg-rose-500/20 text-rose-400 border-rose-500/40"
-              }`}>
-                ● {wsStatus}
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 mt-1">Cross-Market Structural Inefficiency & Liquidity Routing Protocol v11.0.0</p>
-          </div>
+    <>
+      {/* 📌 真正、畫面看不到的網頁大腦區塊 <head>。直接渲染在同一個檔案內！ */}
+      <Head>
+        <title>ALPHAFORGE METAMIDDLEWARE RELAYER</title>
+        <meta name="base:app_id" content="6a29f546654784aa1565a9bb7" />
+      </Head>
 
-          <div className="flex items-center gap-3 bg-slate-900/60 p-2 rounded-lg border border-slate-800">
-            <span className="text-xs font-bold text-slate-500 px-2">NODE_API_KEY:</span>
-            <input 
-              type="text" 
-              value={apiKey} 
-              onChange={(e) => setApiKey(e.target.value)}
-              className="bg-slate-950 border border-slate-800 text-xs px-3 py-1.5 rounded text-cyan-400 focus:outline-none focus:border-cyan-500 w-44 font-mono"
-            />
-          </div>
-        </header>
-
-        {/* MAIN CONTAINER */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          <div className="lg:col-span-3 space-y-6">
-            
-            {/* CATEGORY TABS */}
-            <div className="flex border-b border-slate-800 gap-2">
-              {[
-                { key: "CRYPTO", label: "🪙 CRYPTO" },
-                { key: "STOCKS", label: "📊 MACRO & STOCKS" },
-                { key: "WEATHER", label: "🌍 WEATHER MATRIX" },
-                { key: "POLITICS", label: "⚖️ POLITICS & STRATEGY" }
-              ].map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setCategory(tab.key)}
-                  className={`px-5 py-2.5 font-bold text-sm tracking-wide transition-all cursor-pointer ${
-                    category === tab.key 
-                      ? "border-b-2 border-cyan-400 text-cyan-400 bg-cyan-500/5" 
-                      : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {/* REAL-TIME FEED PANEL (WS) */}
-            <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></div>
-                  <h2 className="text-sm font-bold tracking-wider text-slate-300">⚡ REALTIME ROUTING FEED (2s Telemetry)</h2>
-                </div>
-                <span className="text-xs text-slate-500">
-                  Last Sync: {lastUpdateTime ? new Date(lastUpdateTime * 1000).toLocaleTimeString() : "CONNECTING TO STREAM..."}
+      <div className="min-h-screen bg-[#090d16] text-slate-200 p-4 lg:p-8 font-mono">
+        <div className="max-w-[1600px] mx-auto">
+          
+          {/* 📌 這是你的視覺 <header> (網頁頁首導覽列) */}
+          <header className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-800 pb-6 mb-6 gap-4">
+            <div>
+              <div className="flex items-center gap-3">
+                <h1 className="text-xl lg:text-2xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
+                  ALPHAFORGE METAMIDDLEWARE RELAYER
+                </h1>
+                <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
+                  wsStatus === "CONNECTED" ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40" :
+                  wsStatus === "CONNECTING" ? "bg-amber-500/20 text-amber-400 border-amber-500/40 animate-pulse" :
+                  "bg-rose-500/20 text-rose-400 border-rose-500/40"
+                }`}>
+                  ● {wsStatus}
                 </span>
               </div>
-
-              {realtimeData.length === 0 ? (
-                <div className="py-12 text-center text-slate-500 text-sm border border-dashed border-slate-800 rounded-lg">
-                  📡 Ingesting global decentralized telemetry stream. Awaiting backend payload dispatch...
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-800 text-slate-500 uppercase tracking-wider text-[11px]">
-                        <th className="py-3 px-2">FEED_ID</th>
-                        <th className="py-3 px-2 w-1/4">MARKET UNDERLYING</th>
-                        <th className="py-3 px-2">SOURCE</th>
-                        <th className="py-3 px-2 text-right text-amber-500/80">RETAIL ODDS (DPM)</th>
-                        <th className="py-3 px-2 text-right text-indigo-500/80">INST IMPLIED</th>
-                        <th className="py-3 px-2 text-center text-cyan-500/80">DEVIATION</th>
-                        <th className="py-3 px-2 text-center">STATUS</th>
-                        <th className="py-3 px-2 text-right">DISPATCH MATRIX</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/50">
-                      {realtimeData.map((item, index) => (
-                        <tr key={index} className="hover:bg-slate-800/30 transition-colors">
-                          <td className="py-3 px-2 text-slate-600 font-mono">#{item.id}</td>
-                          <td className="py-3 px-2 text-slate-200 font-sans font-medium">{item.title}</td>
-                          <td className="py-3 px-2">
-                            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-bold">
-                              {item.source_platform}
-                            </span>
-                          </td>
-                          <td className="py-3 px-2 text-right text-amber-400 font-bold">{item.manifold_odds}%</td>
-                          <td className="py-3 px-2 text-right text-indigo-400 font-bold">{item.deribit_implied_odds}%</td>
-                          <td className="py-3 px-2 text-center text-cyan-400 font-bold text-sm">{item.deviation_rate}</td>
-                          <td className="py-3 px-2 text-center">
-                            <span className={`px-2 py-0.5 rounded text-[10px] ${getAnomalyClass(item.anomaly_type)}`}>
-                              {item.anomaly_type}
-                            </span>
-                          </td>
-                          <td className="py-3 px-2 text-right">
-                            <div className="flex justify-end items-center gap-2">
-                              <button
-                                onClick={() => handleCopyAlphaText(item)}
-                                className={`px-3 py-1.5 rounded text-[11px] font-bold tracking-tight uppercase cursor-pointer border transition-all ${
-                                  copiedId === item.id
-                                    ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
-                                    : "bg-slate-950 text-slate-400 border-slate-800 hover:border-cyan-500/40 hover:text-cyan-400"
-                                }`}
-                              >
-                                {copiedId === item.id ? "✓ Copied" : "📢 Share Alpha"}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              <p className="text-xs text-slate-400 mt-1">Cross-Market Structural Inefficiency & Liquidity Routing Protocol v11.0.0</p>
             </div>
 
-            {/* HARDCORE POSTGRESQL ARCHIVE TABLE (HTTP) */}
-            <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                <div>
-                  <h2 className="text-sm font-bold tracking-wider text-slate-300">📦 POSTGRESQL HISTORICAL QUENCHING ARCHIVE</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Persistent historical datasets optimized for backtesting and model verification</p>
-                </div>
-                
-                <div className="flex flex-wrap items-center gap-4 text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-500">Min Deviation:</span>
-                    <input 
-                      type="number" 
-                      step="0.5" 
-                      min="0"
-                      value={minDeviation}
-                      onChange={(e) => setMinDeviation(parseFloat(e.target.value) || 0)}
-                      className="bg-slate-950 border border-slate-800 px-2 py-1 rounded text-cyan-400 w-16 text-center focus:outline-none"
-                    />
-                  </div>
-                  <label className="flex items-center gap-2 cursor-pointer text-slate-400 select-none">
-                    <input 
-                      type="checkbox"
-                      checked={resolvedOnly}
-                      onChange={(e) => setResolvedOnly(e.target.checked)}
-                      className="rounded bg-slate-950 border-slate-800 text-cyan-500 focus:ring-0 cursor-pointer"
-                    />
-                    <span>Resolved Only</span>
-                  </label>
-                </div>
-              </div>
-
-              {historyData.length === 0 ? (
-                <div className="py-12 text-center text-slate-500 text-sm border border-dashed border-slate-800 rounded-lg">
-                  📭 Null Payload: No persistent records matching current filter thresholds.
-                </div>
-              ) : (
-                <div className="overflow-x-auto max-h-[400px]">
-                  <table className="w-full text-left text-xs">
-                    <thead className="sticky top-0 bg-[#0e1524] text-slate-500 uppercase tracking-wider z-10 text-[11px]">
-                      <tr className="border-b border-slate-800">
-                        <th className="py-2.5 px-2">DB_INDEX</th>
-                        <th className="py-2.5 px-2 w-1/3">HISTORICAL UNDERLYING</th>
-                        <th className="py-2.5 px-2 text-right">RETAIL / INST</th>
-                        <th className="py-2.5 px-2 text-center">DEVIATION</th>
-                        <th className="py-2.5 px-2 text-center">RESOLUTION</th>
-                        <th className="py-2.5 px-2 text-right">SIMULATED PNL</th>
-                        <th className="py-2.5 px-2 text-right">INGESTION TIME</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/30">
-                      {historyData.map((rec) => (
-                        <tr key={rec.id} className="hover:bg-slate-800/20 text-slate-400 transition-colors">
-                          <td className="py-2.5 px-2 text-slate-600">#{rec.id}</td>
-                          <td className="py-2.5 px-2 text-slate-300 font-sans">{rec.title}</td>
-                          <td className="py-2.5 px-2 text-right">
-                            <span className="text-amber-400/80">{rec.retail_odds}%</span>
-                            <span className="text-slate-600 mx-1">/</span>
-                            <span className="text-indigo-400/80">{rec.institutional_odds}%</span>
-                          </td>
-                          <td className="py-2.5 px-2 text-center font-bold text-slate-300">{rec.deviation_rate}</td>
-                          <td className="py-2.5 px-2 text-center">
-                            {rec.performance.is_resolved === 1 ? (
-                              <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px]">RESOLVED</span>
-                            ) : rec.performance.is_resolved === -1 ? (
-                              <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 text-[10px]">VOIDED</span>
-                            ) : (
-                              <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[10px]">MONITORING</span>
-                            )}
-                          </td>
-                          <td className={`py-2.5 px-2 text-right font-bold ${
-                            rec.performance.simulated_pnl && rec.performance.simulated_pnl > 0 ? "text-emerald-400" : 
-                            rec.performance.simulated_pnl && rec.performance.simulated_pnl < 0 ? "text-rose-400" : "text-slate-500"
-                          }`}>
-                            {rec.performance.simulated_pnl != null ? `${rec.performance.simulated_pnl} USDT` : "--"}
-                          </td>
-                          <td className="py-2.5 px-2 text-right text-slate-600 text-[11px]">{rec.created_at}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+            <div className="flex items-center gap-3 bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+              <span className="text-xs font-bold text-slate-500 px-2">NODE_API_KEY:</span>
+              <input 
+                type="text" 
+                value={apiKey} 
+                onChange={(e) => setApiKey(e.target.value)}
+                className="bg-slate-950 border border-slate-800 text-xs px-3 py-1.5 rounded text-cyan-400 focus:outline-none focus:border-cyan-500 w-44 font-mono"
+              />
             </div>
-          </div>
+          </header>
 
-          {/* RIGHT SIDEBAR: TERMINAL INTEL & ECOSYSTEM GATEWAYS (1 COL) */}
-          <div className="space-y-6">
-            <div className="bg-slate-900/60 border border-slate-800/60 rounded-xl p-5 font-mono">
-              <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-3 flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-                💻 CORE RELAYER SPEC
-              </h3>
-              <div className="space-y-2 text-xs text-slate-400">
-                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
-                  <span className="text-slate-500">Node Environment</span>
-                  <span className="text-cyan-400 font-bold">Production-Alpha</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
-                  <span className="text-slate-500">Pipeline Latency</span>
-                  <span className="text-emerald-400 font-bold">&lt; 150ms</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
-                  <span className="text-slate-500">Data Sovereignty</span>
-                  <span className="text-slate-300">Enabled (RAW CSV/JSON)</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Execution Mode</span>
-                  <span className="text-amber-500 font-bold">Manual / Self-Custody</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-gradient-to-br from-slate-900 via-[#0c1424] to-slate-950 border border-slate-800 rounded-xl p-5">
-              <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-1">📊 BACKTEST DATA FREEDOM</h3>
-              <p className="text-xs text-slate-400 leading-relaxed mb-3 font-sans">
-                本平台堅守<strong>數據自由</strong>原則。我們不控管或綁定任何用戶交易 API，亦不代客執行 any 落單策略。
-              </p>
-              <p className="text-xs text-slate-500 leading-relaxed mb-4 font-sans">
-                終端用戶可自由切換觀察板塊、利用歷史封存區下載完整 PostgreSQL 結構化數據，並導入自身的 C++ / Cython 交易模組進行地端（Local）的極速回測與量化建模。
-              </p>
-              <div className="p-2.5 rounded bg-slate-950 border border-slate-800/50 text-[11px] text-cyan-500/90 text-center font-bold">
-                🔒 Non-Custodial • 100% Data-Driven
-              </div>
-            </div>
-
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5">
-              <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-1">🎁 LIQUIDITY GATEWAYS</h3>
-              <p className="text-xs text-slate-500 mb-4 font-sans">透過驗證節點通道前往各大官方交易平台。請自行於官方安全環境下配置您的專屬策略執行單。</p>
+          {/* MAIN CONTAINER */}
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <div className="lg:col-span-3 space-y-6">
               
-              <div className="space-y-2 text-xs">
-                {Object.entries(refLinks).map(([platform, url]) => (
-                  <a 
-                    key={platform}
-                    href={url} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-between p-2.5 rounded bg-slate-950 border border-slate-800/80 hover:border-cyan-500/40 text-slate-400 hover:text-cyan-400 transition-all cursor-pointer group"
+              {/* CATEGORY TABS */}
+              <div className="flex border-b border-slate-800 gap-2">
+                {[
+                  { key: "CRYPTO", label: "🪙 CRYPTO" },
+                  { key: "STOCKS", label: "📊 MACRO & STOCKS" },
+                  { key: "WEATHER", label: "🌍 WEATHER MATRIX" },
+                  { key: "POLITICS", label: "⚖️ POLITICS & STRATEGY" }
+                ].map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setCategory(tab.key)}
+                    className={`px-5 py-2.5 font-bold text-sm tracking-wide transition-all cursor-pointer ${
+                      category === tab.key 
+                        ? "border-b-2 border-cyan-400 text-cyan-400 bg-cyan-500/5" 
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
                   >
-                    <span className="font-bold tracking-wide group-hover:translate-x-0.5 transition-transform">{platform}</span>
-                    <span className="text-[10px] bg-slate-900 px-1.5 py-0.5 rounded text-slate-500 group-hover:text-cyan-400">VISIT EXCHANGE ↗</span>
-                  </a>
+                    {tab.label}
+                  </button>
                 ))}
               </div>
+
+              {/* REAL-TIME FEED PANEL (WS) */}
+              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></div>
+                    <h2 className="text-sm font-bold tracking-wider text-slate-300">⚡ REALTIME ROUTING FEED (2s Telemetry)</h2>
+                  </div>
+                  <span className="text-xs text-slate-500">
+                    Last Sync: {lastUpdateTime ? new Date(lastUpdateTime * 1000).toLocaleTimeString() : "CONNECTING TO STREAM..."}
+                  </span>
+                </div>
+
+                {realtimeData.length === 0 ? (
+                  <div className="py-12 text-center text-slate-500 text-sm border border-dashed border-slate-800 rounded-lg">
+                    📡 Ingesting global decentralized telemetry stream. Awaiting backend payload dispatch...
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-500 uppercase tracking-wider text-[11px]">
+                          <th className="py-3 px-2">FEED_ID</th>
+                          <th className="py-3 px-2 w-1/4">MARKET UNDERLYING</th>
+                          <th className="py-3 px-2">SOURCE</th>
+                          <th className="py-3 px-2 text-right">RETAIL ODDS (DPM)</th>
+                          <th className="py-3 px-2 text-right">INST IMPLIED</th>
+                          <th className="py-3 px-2 text-center">DEVIATION</th>
+                          <th className="py-3 px-2 text-center">STATUS</th>
+                          <th className="py-3 px-2 text-right">DISPATCH MATRIX</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/50">
+                        {realtimeData.map((item, index) => (
+                          <tr key={index} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="py-3 px-2 text-slate-600 font-mono">#{item.id}</td>
+                            <td className="py-3 px-2 text-slate-200 font-sans font-medium">{item.title}</td>
+                            <td className="py-3 px-2">
+                              <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-bold">
+                                {item.source_platform}
+                              </span>
+                            </td>
+                            <td className="py-3 px-2 text-right text-amber-400 font-bold">{item.manifold_odds}%</td>
+                            <td className="py-3 px-2 text-right text-indigo-400 font-bold">{item.deribit_implied_odds}%</td>
+                            <td className="py-3 px-2 text-center text-cyan-400 font-bold text-sm">{item.deviation_rate}</td>
+                            <td className="py-3 px-2 text-center">
+                              <span className={`px-2 py-0.5 rounded text-[10px] ${getAnomalyClass(item.anomaly_type)}`}>
+                                {item.anomaly_type}
+                              </span>
+                            </td>
+                            <td className="py-3 px-2 text-right">
+                              <div className="flex justify-end items-center gap-2">
+                                <button
+                                  onClick={() => handleCopyAlphaText(item)}
+                                  className={`px-3 py-1.5 rounded text-[11px] font-bold tracking-tight uppercase cursor-pointer border transition-all ${
+                                    copiedId === item.id
+                                      ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
+                                      : "bg-slate-950 text-slate-400 border-slate-800 hover:border-cyan-500/40 hover:text-cyan-400"
+                                  }`}
+                                >
+                                  {copiedId === item.id ? "✓ Copied" : "📢 Share Alpha"}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* HARDCORE POSTGRESQL ARCHIVE TABLE */}
+              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                  <div>
+                    <h2 className="text-sm font-bold tracking-wider text-slate-300">📦 POSTGRESQL HISTORICAL QUENCHING ARCHIVE</h2>
+                    <p className="text-xs text-slate-500 mt-0.5">Persistent historical datasets optimized for backtesting and model verification</p>
+                  </div>
+                  
+                  <div className="flex flex-wrap items-center gap-4 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-500">Min Deviation:</span>
+                      <input 
+                        type="number" 
+                        step="0.5" 
+                        min="0"
+                        value={minDeviation}
+                        onChange={(e) => setMinDeviation(parseFloat(e.target.value) || 0)}
+                        className="bg-slate-950 border border-slate-800 px-2 py-1 rounded text-cyan-400 w-16 text-center focus:outline-none"
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer text-slate-400 select-none">
+                      <input 
+                        type="checkbox"
+                        checked={resolvedOnly}
+                        onChange={(e) => setResolvedOnly(e.target.checked)}
+                        className="rounded bg-slate-950 border-slate-800 text-cyan-500 focus:ring-0 cursor-pointer"
+                      />
+                      <span>Resolved Only</span>
+                    </label>
+                  </div>
+                </div>
+
+                {historyData.length === 0 ? (
+                  <div className="py-12 text-center text-slate-500 text-sm border border-dashed border-slate-800 rounded-lg">
+                    📭 Null Payload: No persistent records matching current filter thresholds.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto max-h-[400px]">
+                    <table className="w-full text-left text-xs">
+                      <thead className="sticky top-0 bg-[#0e1524] text-slate-500 uppercase tracking-wider z-10 text-[11px]">
+                        <tr className="border-b border-slate-800">
+                          <th className="py-2.5 px-2">DB_INDEX</th>
+                          <th className="py-2.5 px-2 w-1/3">HISTORICAL UNDERLYING</th>
+                          <th className="py-2.5 px-2 text-right">RETAIL / INST</th>
+                          <th className="py-2.5 px-2 text-center">DEVIATION</th>
+                          <th className="py-2.5 px-2 text-center">RESOLUTION</th>
+                          <th className="py-2.5 px-2 text-right">SIMULATED PNL</th>
+                          <th className="py-2.5 px-2 text-right">INGESTION TIME</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/30">
+                        {historyData.map((rec) => (
+                          <tr key={rec.id} className="hover:bg-slate-800/20 text-slate-400 transition-colors">
+                            <td className="py-2.5 px-2 text-slate-600">#{rec.id}</td>
+                            <td className="py-2.5 px-2 text-slate-300 font-sans">{rec.title}</td>
+                            <td className="py-2.5 px-2 text-right">
+                              <span className="text-amber-400/80">{rec.retail_odds}%</span>
+                              <span className="text-slate-600 mx-1">/</span>
+                              <span className="text-indigo-400/80">{rec.institutional_odds}%</span>
+                            </td>
+                            <td className="py-2.5 px-2 text-center font-bold text-slate-300">{rec.deviation_rate}</td>
+                            <td className="py-2.5 px-2 text-center">
+                              {rec.performance.is_resolved === 1 ? (
+                                <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px]">RESOLVED</span>
+                              ) : rec.performance.is_resolved === -1 ? (
+                                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 text-[10px]">VOIDED</span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[10px]">MONITORING</span>
+                              )}
+                            </td>
+                            <td className={`py-2.5 px-2 text-right font-bold ${
+                              rec.performance.simulated_pnl && rec.performance.simulated_pnl > 0 ? "text-emerald-400" : 
+                              rec.performance.simulated_pnl && rec.performance.simulated_pnl < 0 ? "text-rose-400" : "text-slate-500"
+                            }`}>
+                              {rec.performance.simulated_pnl != null ? `${rec.performance.simulated_pnl} USDT` : "--"}
+                            </td>
+                            <td className="py-2.5 px-2 text-right text-slate-600 text-[11px]">{rec.created_at}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
 
+            {/* RIGHT SIDEBAR */}
+            <div className="space-y-6">
+              <div className="bg-slate-900/60 border border-slate-800/60 rounded-xl p-5 font-mono">
+                <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-3 flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                  💻 CORE RELAYER SPEC
+                </h3>
+                <div className="space-y-2 text-xs text-slate-400">
+                  <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                    <span className="text-slate-500">Node Environment</span>
+                    <span className="text-cyan-400 font-bold">Production-Alpha</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Pipeline Latency</span>
+                    <span className="text-emerald-400 font-bold">&lt; 150ms</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-slate-900 via-[#0c1424] to-slate-950 border border-slate-800 rounded-xl p-5">
+                <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-1">📊 BACKTEST DATA FREEDOM</h3>
+                <p className="text-xs text-slate-400 leading-relaxed font-sans">
+                  本平台堅守數據自由原則。終端用戶可自由下載完整 PostgreSQL 結構化數據，並導入自身的 C++ / Cython 交易模組進行地端回測與量化建模。
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
