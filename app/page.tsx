@@ -183,6 +183,12 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
 
   return (
     <div className="min-h-screen bg-[#090d16] text-slate-200 p-4 lg:p-8 font-mono">
+      
+      {/* 📌 BASE ECOSYSTEM DOMAIN VERIFICATION META KEY */}
+      <head>
+        <meta name="base:app_id" content="6a29f546654784aa1565a9bb7" />
+      </head>
+
       <div className="max-w-[1600px] mx-auto">
         
         {/* TOP PANEL: CONTROL HEADER */}
@@ -293,7 +299,6 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
                           </td>
                           <td className="py-3 px-2 text-right">
                             <div className="flex justify-end items-center gap-2">
-                              {/* VIRAL SHARE BUTTON */}
                               <button
                                 onClick={() => handleCopyAlphaText(item)}
                                 className={`px-3 py-1.5 rounded text-[11px] font-bold tracking-tight uppercase cursor-pointer border transition-all ${
@@ -322,7 +327,6 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
                   <p className="text-xs text-slate-500 mt-0.5">Persistent historical datasets optimized for backtesting and model verification</p>
                 </div>
                 
-                {/* FILTERS */}
                 <div className="flex flex-wrap items-center gap-4 text-xs">
                   <div className="flex items-center gap-2">
                     <span className="text-slate-500">Min Deviation:</span>
@@ -409,7 +413,7 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
           <div className="space-y-6">
             
             {/* TERMINAL OPERATIONAL STATUS */}
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 font-mono">
+            <div className="bg-slate-900/60 border border-slate-800/60 rounded-xl p-5 font-mono">
               <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-3 flex items-center gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
                 💻 CORE RELAYER SPEC
