@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -68,23 +67,6 @@ export default function RadarDashboard() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
-
-  // 📌 核心自動注入引擎：組件一掛載，直接暴力插入 Meta 標籤到 document.head
-  useEffect(() => {
-    if (typeof document !== 'undefined') {
-      // 1. 先檢查有沒有重複的標籤，防範重複掛載
-      let metaTag = document.querySelector('meta[name="base:app_id"]');
-      
-      if (!metaTag) {
-        // 2. 沒找到就現場生一個出來
-        metaTag = document.createElement('meta');
-        metaTag.setAttribute('name', 'base:app_id');
-        metaTag.setAttribute('content', '6a29f54665478aa1565a9bb7');
-        document.head.appendChild(metaTag);
-        console.log("🚀 [AlphaForge Core] Base verification meta tag injected successfully.");
-      }
-    }
-  }, []);
 
   // 1. ASYNC HTTP DATASTREAM INGESTION
   useEffect(() => {
