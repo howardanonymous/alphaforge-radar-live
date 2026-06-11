@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import Head from 'next/head'; // 📌 終極核心：用 Next.js 原生的 Head 組件，直接把標籤暴力釘進大腦
+import Head from 'next/head'; // 📌 終極核心：引入 Next.js 原生 Head 標籤
 
 // =========================================================
 // 🌐 NETWORK ENVIRONMENT CONFIGURATION
@@ -184,7 +184,7 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
 
   return (
     <>
-      {/* 📌 真正、畫面看不到的網頁大腦區塊 <head>。直接渲染在同一個檔案內！ */}
+      {/* 📌 核心破關區：利用 Next.js 原生組件，在預渲染時直接把 Meta 釘進真正的 HTML <head> 大腦中 */}
       <Head>
         <title>ALPHAFORGE METAMIDDLEWARE RELAYER</title>
         <meta name="base:app_id" content="6a29f546654784aa1565a9bb7" />
@@ -193,7 +193,7 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
       <div className="min-h-screen bg-[#090d16] text-slate-200 p-4 lg:p-8 font-mono">
         <div className="max-w-[1600px] mx-auto">
           
-          {/* 📌 這是你的視覺 <header> (網頁頁首導覽列) */}
+          {/* TOP PANEL: CONTROL HEADER (視覺頁首，使用者看得到) */}
           <header className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-800 pb-6 mb-6 gap-4">
             <div>
               <div className="flex items-center gap-3">
@@ -224,6 +224,8 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
 
           {/* MAIN CONTAINER */}
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            
+            {/* LEFT CONTENT: RADAR MATRICES (3 COLS) */}
             <div className="lg:col-span-3 space-y-6">
               
               {/* CATEGORY TABS */}
@@ -272,9 +274,9 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
                           <th className="py-3 px-2">FEED_ID</th>
                           <th className="py-3 px-2 w-1/4">MARKET UNDERLYING</th>
                           <th className="py-3 px-2">SOURCE</th>
-                          <th className="py-3 px-2 text-right">RETAIL ODDS (DPM)</th>
-                          <th className="py-3 px-2 text-right">INST IMPLIED</th>
-                          <th className="py-3 px-2 text-center">DEVIATION</th>
+                          <th className="py-3 px-2 text-right text-amber-500/80">RETAIL ODDS (DPM)</th>
+                          <th className="py-3 px-2 text-right text-indigo-500/80">INST IMPLIED</th>
+                          <th className="py-3 px-2 text-center text-cyan-500/80">DEVIATION</th>
                           <th className="py-3 px-2 text-center">STATUS</th>
                           <th className="py-3 px-2 text-right">DISPATCH MATRIX</th>
                         </tr>
@@ -319,7 +321,7 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
                 )}
               </div>
 
-              {/* HARDCORE POSTGRESQL ARCHIVE TABLE */}
+              {/* HARDCORE POSTGRESQL ARCHIVE TABLE (HTTP) */}
               <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                   <div>
@@ -405,8 +407,10 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
               </div>
             </div>
 
-            {/* RIGHT SIDEBAR */}
+            {/* RIGHT SIDEBAR: TERMINAL INTEL & ECOSYSTEM GATEWAYS (1 COL) */}
             <div className="space-y-6">
+              
+              {/* TERMINAL OPERATIONAL STATUS */}
               <div className="bg-slate-900/60 border border-slate-800/60 rounded-xl p-5 font-mono">
                 <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-3 flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
@@ -417,19 +421,59 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
                     <span className="text-slate-500">Node Environment</span>
                     <span className="text-cyan-400 font-bold">Production-Alpha</span>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
                     <span className="text-slate-500">Pipeline Latency</span>
                     <span className="text-emerald-400 font-bold">&lt; 150ms</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                    <span className="text-slate-500">Data Sovereignty</span>
+                    <span className="text-slate-300">Enabled (RAW CSV/JSON)</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Execution Mode</span>
+                    <span className="text-amber-500 font-bold">Manual / Self-Custody</span>
                   </div>
                 </div>
               </div>
 
+              {/* BACKTEST DATA FREEDOM BANNER */}
               <div className="bg-gradient-to-br from-slate-900 via-[#0c1424] to-slate-950 border border-slate-800 rounded-xl p-5">
                 <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-1">📊 BACKTEST DATA FREEDOM</h3>
-                <p className="text-xs text-slate-400 leading-relaxed font-sans">
-                  本平台堅守數據自由原則。終端用戶可自由下載完整 PostgreSQL 結構化數據，並導入自身的 C++ / Cython 交易模組進行地端回測與量化建模。
+                <p className="text-xs text-slate-400 leading-relaxed mb-3 font-sans">
+                  本平台堅守<strong>數據自由</strong>原則。我們不控管或綁定任何用戶交易 API，亦不代客執行 any 落單策略。
                 </p>
+                <p className="text-xs text-slate-500 leading-relaxed mb-4 font-sans">
+                  終端用戶可自由切換觀察板塊、利用歷史封存區下載完整 PostgreSQL 結構化數據，並導入自身的 C++ / Cython 交易模組進行地端（Local）的極速回測與量化建模。
+                </p>
+                <div className="p-2.5 rounded bg-slate-950 border border-slate-800/50 text-[11px] text-cyan-500/90 text-center font-bold">
+                  🔒 Non-Custodial • 100% Data-Driven
+                </div>
               </div>
+
+              {/* REFERRAL GATEWAYS (PURE WEBLINK) */}
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5">
+                <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-1">🎁 LIQUIDITY GATEWAYS</h3>
+                <p className="text-xs text-slate-500 mb-4 font-sans">透過驗證節點通道前往各大官方交易平台。請自行於官方安全環境下配置您的專屬策略執行單。</p>
+                
+                <div className="space-y-2 text-xs">
+                  {Object.entries(refLinks).map(([platform, url]) => (
+                    <a 
+                      key={platform}
+                      href={url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between p-2.5 rounded bg-slate-950 border border-slate-800/80 hover:border-cyan-500/40 text-slate-400 hover:text-cyan-400 transition-all cursor-pointer group"
+                    >
+                      <span className="font-bold tracking-wide group-hover:translate-x-0.5 transition-transform">{platform}</span>
+                      <span className="text-[10px] bg-slate-900 px-1.5 py-0.5 rounded text-slate-500 group-hover:text-cyan-400">VISIT EXCHANGE ↗</span>
+                    </a>
+                  ))}
+                  {Object.keys(refLinks).length === 0 && (
+                    <div className="text-slate-600 text-center py-2 animate-pulse">Polling gateway map...</div>
+                  )}
+                </div>
+              </div>
+
             </div>
           </div>
         </div>
