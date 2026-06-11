@@ -68,6 +68,23 @@ export default function RadarDashboard() {
 
   const wsRef = useRef<WebSocket | null>(null);
 
+  // 📌 核心自動注入引擎：組件一掛載，直接暴力插入 Meta 標籤到 document.head
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      // 1. 先檢查有沒有重複的標籤，防範重複掛載
+      let metaTag = document.querySelector('meta[name="base:app_id"]');
+      
+      if (!metaTag) {
+        // 2. 沒找到就現場生一個出來
+        metaTag = document.createElement('meta');
+        metaTag.setAttribute('name', 'base:app_id');
+        metaTag.setAttribute('content', '6a29f546654784aa1565a9bb7');
+        document.head.appendChild(metaTag);
+        console.log("🚀 [AlphaForge Core] Base verification meta tag injected successfully.");
+      }
+    }
+  }, []);
+
   // 1. ASYNC HTTP DATASTREAM INGESTION
   useEffect(() => {
     const fetchHistory = async () => {
@@ -183,12 +200,6 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
 
   return (
     <div className="min-h-screen bg-[#090d16] text-slate-200 p-4 lg:p-8 font-mono">
-      
-      {/* 📌 BASE ECOSYSTEM DOMAIN VERIFICATION META KEY */}
-      <head>
-        <meta name="base:app_id" content="6a29f546654784aa1565a9bb7" />
-      </head>
-
       <div className="max-w-[1600px] mx-auto">
         
         {/* TOP PANEL: CONTROL HEADER */}
@@ -442,7 +453,7 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
             <div className="bg-gradient-to-br from-slate-900 via-[#0c1424] to-slate-950 border border-slate-800 rounded-xl p-5">
               <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-1">📊 BACKTEST DATA FREEDOM</h3>
               <p className="text-xs text-slate-400 leading-relaxed mb-3 font-sans">
-                本平台堅守<strong>數據自由</strong>原則。我們不控管或綁定任何用戶交易 API，亦不代客執行任何落單策略。
+                本平台堅守<strong>數據自由</strong>原則。我們不控管或綁定任何用戶交易 API，亦不代客執行 any 落單策略。
               </p>
               <p className="text-xs text-slate-500 leading-relaxed mb-4 font-sans">
                 終端用戶可自由切換觀察板塊、利用歷史封存區下載完整 PostgreSQL 結構化數據，並導入自身的 C++ / Cython 交易模組進行地端（Local）的極速回測與量化建模。
