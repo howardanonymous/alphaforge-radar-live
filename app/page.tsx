@@ -1,33 +1,18 @@
-import { Metadata } from 'next';
+
+'use client';
+
 import React, { useState, useEffect, useRef } from 'react';
 
 // =========================================================
-// 📌 1. SERVERSIDE METADATA (100% 吻合 Base App Router 的官方規格)
+// 🌐 NETWORK ENVIRONMENT CONFIGURATION
 // =========================================================
-// 注意：此檔案最頂端絕對不加 'use client'，確保 metadata 正常由伺服器直吐
-export const metadata: Metadata = {
-  title: 'ALPHAFORGE METAMIDDLEWARE RELAYER',
-  description: 'Cross-Market Structural Inefficiency & Liquidity Routing Protocol v11.0.0',
-  other: {
-    // 📌 核心通關標籤：這行會被 Next.js 自動扔進網頁大腦區塊 <head>
-    'base:app_id': '6a29f54665478aa1565a9bb7',
-  },
-};
-
-// 這是 Next.js 的預設進入點（伺服器外殼），它會直接調用下方的客戶端 UI 動態組件
-export default function Home() {
-  return <RadarDashboardClient />;
-}
-
-// =========================================================
-// 📌 2. CLIENTSIDE PANEL ENGINE (下放到這裡宣告 'use client'，100% 保留所有動態邏輯)
-// =========================================================
-'use client';
-
 const BACKEND_HOST = "alphaforge-backend-dtqv.onrender.com";
 const HTTP_BASE = `https://${BACKEND_HOST}`; 
 const WS_BASE = `wss://${BACKEND_HOST}`;   
 
+// =========================================================
+// 📊 TS STRUCT DEFINITIONS (ROBUST TYPE-SAFETY LAYER)
+// =========================================================
 interface RealtimeSignal {
   id: string;
   title: string;
@@ -62,7 +47,7 @@ interface ReferralLinks {
   [key: string]: string;
 }
 
-function RadarDashboardClient() {
+export default function RadarDashboard() {
   // --- SYSTEM CORE STATES ---
   const [category, setCategory] = useState<string>("CRYPTO");
   const [apiKey, setApiKey] = useState<string>("ALPHA_VIP_USER");
@@ -83,6 +68,23 @@ function RadarDashboardClient() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
+
+  // 📌 核心自動注入引擎：組件一掛載，直接暴力插入 Meta 標籤到 document.head
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      // 1. 先檢查有沒有重複的標籤，防範重複掛載
+      let metaTag = document.querySelector('meta[name="base:app_id"]');
+      
+      if (!metaTag) {
+        // 2. 沒找到就現場生一個出來
+        metaTag = document.createElement('meta');
+        metaTag.setAttribute('name', 'base:app_id');
+        metaTag.setAttribute('content', '6a29f54665478aa1565a9bb7');
+        document.head.appendChild(metaTag);
+        console.log("🚀 [AlphaForge Core] Base verification meta tag injected successfully.");
+      }
+    }
+  }, []);
 
   // 1. ASYNC HTTP DATASTREAM INGESTION
   useEffect(() => {
@@ -201,7 +203,7 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
     <div className="min-h-screen bg-[#090d16] text-slate-200 p-4 lg:p-8 font-mono">
       <div className="max-w-[1600px] mx-auto">
         
-        {/* TOP PANEL: CONTROL HEADER (你的視覺頁首) */}
+        {/* TOP PANEL: CONTROL HEADER */}
         <header className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-800 pb-6 mb-6 gap-4">
           <div>
             <div className="flex items-center gap-3">
@@ -361,7 +363,11 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
                 </div>
               </div>
 
-              {historyData.length === 0 ? (
+              {loadingHistory ? (
+                <div className="py-12 text-center text-slate-500 text-sm">
+                  Executing structural SELECT statements on database shards...
+                </div>
+              ) : historyData.length === 0 ? (
                 <div className="py-12 text-center text-slate-500 text-sm border border-dashed border-slate-800 rounded-lg">
                   📭 Null Payload: No persistent records matching current filter thresholds.
                 </div>
