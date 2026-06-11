@@ -1,3 +1,9 @@
+< meta 
+  name= "base:app_id" 
+  content= "6a29f54665478aa1565a9bb7" 
+/>
+
+
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
