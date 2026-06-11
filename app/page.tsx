@@ -1,17 +1,32 @@
-'use client';
-
+import { Metadata } from 'next';
 import React, { useState, useEffect, useRef } from 'react';
 
 // =========================================================
-// 🌐 NETWORK ENVIRONMENT CONFIGURATION
+// 📌 1. SERVERSIDE METADATA (由伺服器直吐，確保 100% 塞進真正的 <head>)
 // =========================================================
+export const metadata: Metadata = {
+  title: 'ALPHAFORGE METAMIDDLEWARE RELAYER',
+  description: 'Cross-Market Structural Inefficiency & Liquidity Routing Protocol v11.0.0',
+  other: {
+    // 📌 這裡就是你要加入的 Base 生態系唯一驗證 Meta 標籤！
+    'base:app_id': '6a29f546654784aa1565a9bb7',
+  },
+};
+
+// 這是主入口（伺服器組件外殼），負責直接渲染底下的客戶端面板功能
+export default function RadarDashboard() {
+  return <RadarDashboardClient />;
+}
+
+// =========================================================
+// 📌 2. CLIENTSIDE ENGINE (標註為 use client，完整保留你的硬核功能)
+// =========================================================
+'use client';
+
 const BACKEND_HOST = "alphaforge-backend-dtqv.onrender.com";
 const HTTP_BASE = `https://${BACKEND_HOST}`; 
 const WS_BASE = `wss://${BACKEND_HOST}`;   
 
-// =========================================================
-// 📊 TS STRUCT DEFINITIONS (ROBUST TYPE-SAFETY LAYER)
-// =========================================================
 interface RealtimeSignal {
   id: string;
   title: string;
@@ -46,7 +61,7 @@ interface ReferralLinks {
   [key: string]: string;
 }
 
-export default function RadarDashboard() {
+function RadarDashboardClient() {
   // --- SYSTEM CORE STATES ---
   const [category, setCategory] = useState<string>("CRYPTO");
   const [apiKey, setApiKey] = useState<string>("ALPHA_VIP_USER");
@@ -67,23 +82,6 @@ export default function RadarDashboard() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
-
-  // 📌 核心自動注入引擎：組件一掛載，直接暴力插入 Meta 標籤到 document.head
-  useEffect(() => {
-    if (typeof document !== 'undefined') {
-      // 1. 先檢查有沒有重複的標籤，防範重複掛載
-      let metaTag = document.querySelector('meta[name="base:app_id"]');
-      
-      if (!metaTag) {
-        // 2. 沒找到就現場生一個出來
-        metaTag = document.createElement('meta');
-        metaTag.setAttribute('name', 'base:app_id');
-        metaTag.setAttribute('content', '6a29f546654784aa1565a9bb7');
-        document.head.appendChild(metaTag);
-        console.log("🚀 [AlphaForge Core] Base verification meta tag injected successfully.");
-      }
-    }
-  }, []);
 
   // 1. ASYNC HTTP DATASTREAM INGESTION
   useEffect(() => {
@@ -202,7 +200,7 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
     <div className="min-h-screen bg-[#090d16] text-slate-200 p-4 lg:p-8 font-mono">
       <div className="max-w-[1600px] mx-auto">
         
-        {/* TOP PANEL: CONTROL HEADER */}
+        {/* 📌 這裡是你原本寫的視覺 <header> (網頁頁首) */}
         <header className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-800 pb-6 mb-6 gap-4">
           <div>
             <div className="flex items-center gap-3">
@@ -233,8 +231,6 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
 
         {/* MAIN CONTAINER */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          
-          {/* LEFT CONTENT: RADAR MATRICES (3 COLS) */}
           <div className="lg:col-span-3 space-y-6">
             
             {/* CATEGORY TABS */}
@@ -362,11 +358,7 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
                 </div>
               </div>
 
-              {loadingHistory ? (
-                <div className="py-12 text-center text-slate-500 text-sm">
-                  Executing structural SELECT statements on database shards...
-                </div>
-              ) : historyData.length === 0 ? (
+              {historyData.length === 0 ? (
                 <div className="py-12 text-center text-slate-500 text-sm border border-dashed border-slate-800 rounded-lg">
                   📭 Null Payload: No persistent records matching current filter thresholds.
                 </div>
@@ -422,8 +414,6 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
 
           {/* RIGHT SIDEBAR: TERMINAL INTEL & ECOSYSTEM GATEWAYS (1 COL) */}
           <div className="space-y-6">
-            
-            {/* TERMINAL OPERATIONAL STATUS */}
             <div className="bg-slate-900/60 border border-slate-800/60 rounded-xl p-5 font-mono">
               <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-3 flex items-center gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
@@ -449,7 +439,6 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
               </div>
             </div>
 
-            {/* BACKTEST DATA FREEDOM BANNER */}
             <div className="bg-gradient-to-br from-slate-900 via-[#0c1424] to-slate-950 border border-slate-800 rounded-xl p-5">
               <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-1">📊 BACKTEST DATA FREEDOM</h3>
               <p className="text-xs text-slate-400 leading-relaxed mb-3 font-sans">
@@ -463,7 +452,6 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
               </div>
             </div>
 
-            {/* REFERRAL GATEWAYS (PURE WEBLINK) */}
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5">
               <h3 className="text-sm font-bold text-slate-200 tracking-wider mb-1">🎁 LIQUIDITY GATEWAYS</h3>
               <p className="text-xs text-slate-500 mb-4 font-sans">透過驗證節點通道前往各大官方交易平台。請自行於官方安全環境下配置您的專屬策略執行單。</p>
@@ -481,9 +469,6 @@ Mass retail sentiment is completely decoupled from institutional true-risk deriv
                     <span className="text-[10px] bg-slate-900 px-1.5 py-0.5 rounded text-slate-500 group-hover:text-cyan-400">VISIT EXCHANGE ↗</span>
                   </a>
                 ))}
-                {Object.keys(refLinks).length === 0 && (
-                  <div className="text-slate-600 text-center py-2 animate-pulse">Polling gateway map...</div>
-                )}
               </div>
             </div>
 
